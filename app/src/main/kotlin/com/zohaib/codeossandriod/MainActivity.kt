@@ -13,6 +13,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -21,17 +29,45 @@ class MainActivity : ComponentActivity() {
             CodeOSSTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = Color(0xFF0D1117) // Dark GitHub-like background
+                    color = Color(0xFF0D1117)
                 ) {
-                    IDEView()
+                    val viewModel: TerminalViewModel = viewModel()
+                    IDEView(viewModel)
                 }
             }
         }
     }
 }
 
+class TerminalViewModel : ViewModel() {
+    private val pty = PtyBridge()
+    private val _output = MutableStateFlow<List<String>>(listOf("Initializing Terminal..."))
+    val output = _output.asStateFlow()
+
+    init {
+        // Start shell in background
+        kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+            pty.startShell()
+            val buffer = ByteArray(4096)
+            while (true) {
+                val read = pty.read(buffer)
+                if (read > 0) {
+                    val text = String(buffer, 0, read)
+                    _output.value = _output.value + text.split("\n")
+                } else if (read == -1) {
+                    break
+                }
+            }
+        }
+    }
+
+    fun sendCommand(cmd: String) {
+        pty.write(cmd + "\n")
+    }
+}
+
 @Composable
-fun IDEView() {
+fun IDEView(viewModel: TerminalViewModel) {
     Column(modifier = Modifier.fillMaxSize()) {
         // Mock Header
         Box(
@@ -71,32 +107,28 @@ fun IDEView() {
                 .weight(0.4f)
                 .background(Color.Black)
         ) {
-            TerminalComponent()
+            TerminalComponent(viewModel)
         }
     }
 }
 
 @Composable
-fun TerminalComponent() {
-    Column(modifier = Modifier.padding(8.dp)) {
-        Text(
-            text = "zohaib@android:~$ ls",
-            color = Color.Green,
-            fontFamily = FontFamily.Monospace,
-            fontSize = 14.sp
-        )
-        Text(
-            text = "app  build  gradle  settings.gradle.kts",
-            color = Color.White,
-            fontFamily = FontFamily.Monospace,
-            fontSize = 14.sp
-        )
-        Text(
-            text = "zohaib@android:~$ _",
-            color = Color.White,
-            fontFamily = FontFamily.Monospace,
-            fontSize = 14.sp
-        )
+fun TerminalComponent(viewModel: TerminalViewModel) {
+    val output by viewModel.output.collectAsState()
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(8.dp)
+    ) {
+        items(output) { line ->
+            Text(
+                text = line,
+                color = Color.White,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 12.sp
+            )
+        }
     }
 }
 
