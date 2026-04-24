@@ -20,10 +20,12 @@ Traditional "VS Code on Android" solutions rely on WebViews and local web server
 
 ## Requirements
 
+### Validated
+- [x] Create a basic Terminal Emulator component with PTY support. (Validated in Phase 01: The Shell Foundation)
+
 ### Active
 - [ ] Implement a Skia-based text rendering engine for the editor.
 - [ ] Bundle and execute Node.js binary within the Android app context.
-- [ ] Create a basic Terminal Emulator component with PTY support.
 - [ ] Implement a Kotlin-based LSP client.
 - [ ] Integrate Git binary for version control operations.
 
@@ -34,12 +36,12 @@ Traditional "VS Code on Android" solutions rely on WebViews and local web server
 ## Key Decisions
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Jetpack Compose | Modern Android standard with built-in Skia support. | — Pending |
+| Jetpack Compose | Modern Android standard with built-in Skia support. | Validated |
 | Bundled Node.js | Necessary for running VS Code extension host and LSPs. | — Pending |
-| PTY Bridge | Required for a "real" shell experience in the terminal. | — Pending |
+| PTY Bridge | Required for a "real" shell experience in the terminal. | Validated |
 
 ## Evolution
 This document evolves at phase transitions and milestone boundaries.
 
 ---
-*Last updated: 2026-04-25 after initialization*
+*Last updated: 2026-04-25 after Phase 01*
