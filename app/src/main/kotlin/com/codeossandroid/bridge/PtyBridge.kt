@@ -1,0 +1,303 @@
+package com.codeossandroid.bridge
+
+import android.os.Build
+import android.system.Os
+import android.util.Log
+import java.io.FileDescriptor
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.io.IOException
+import java.lang.reflect.Field
+
+class PtyBridge {
+    private var masterFd: Int = -1
+    private var inputStream: FileInputStream? = null
+    private var outputStream: FileOutputStream? = null
+    
+    fun getFd(): Int = masterFd
+
+    companion object {
+        // NativeLibLoader.init() is called in MainActivity.onCreate
+    }
+
+    external fun createPty(shell: String, binPath: String, libPath: String, homePath: String, rows: Int, cols: Int): Int
+    external fun setWindowSize(fd: Int, rows: Int, cols: Int)
+
+    fun startShell(context: android.content.Context, shell: String = "/system/bin/sh", homeDir: String? = null, rows: Int = 24, cols: Int = 80) {
+        val binFile = java.io.File(context.filesDir, "bin")
+        if (binFile.exists()) binFile.deleteRecursively()
+        binFile.mkdirs()
+
+        val libPath = context.applicationInfo.nativeLibraryDir
+        setupSymlinks(context, binFile.absolutePath, libPath)
+        
+        val actualHome = homeDir ?: context.filesDir.absolutePath
+        masterFd = createPty(shell, context.filesDir.absolutePath, libPath, actualHome, rows, cols)
+        
+        if (masterFd != -1) {
+            val fd = FileDescriptor()
+            try {
+                val field: Field = FileDescriptor::class.java.getDeclaredField("descriptor")
+                field.isAccessible = true
+                field.setInt(fd, masterFd)
+                
+                inputStream = FileInputStream(fd)
+                outputStream = FileOutputStream(fd)
+            } catch (e: Exception) {
+                Log.e("PtyBridge", "Failed to create streams", e)
+            }
+        }
+    }
+
+    private fun extractGitTemplatesIfNeeded(context: android.content.Context) {
+        val templatesDir = java.io.File(context.filesDir, "git_templates")
+        val stampFile = java.io.File(templatesDir, ".extracted_v1")
+        if (stampFile.exists()) return
+        if (templatesDir.exists()) templatesDir.deleteRecursively()
+        templatesDir.mkdirs()
+        try {
+            java.util.zip.ZipInputStream(context.assets.open("git-templates.zip")).use { zis ->
+                var entry = zis.nextEntry
+                while (entry != null) {
+                    val entryName = entry.name.replace('\\', '/')
+                    val file = java.io.File(templatesDir, entryName)
+                    if (entry.isDirectory || entryName.endsWith("/")) {
+                        file.mkdirs()
+                    } else {
+                        file.parentFile?.mkdirs()
+                        java.io.FileOutputStream(file).use { out ->
+                            val buffer = ByteArray(8192)
+                            var len: Int
+                            while (zis.read(buffer).also { len = it } > 0) {
+                                out.write(buffer, 0, len)
+                            }
+                        }
+                    }
+                    entry = zis.nextEntry
+                }
+            }
+            stampFile.createNewFile()
+        } catch (e: Exception) {
+            Log.e("PtyBridge", "Failed to extract Git templates", e)
+        }
+    }
+
+    private fun extractNpmIfNeeded(context: android.content.Context) {
+        val npmDir = java.io.File(context.filesDir, "npm_pkg")
+        val stampFile = java.io.File(npmDir, ".extracted_v3")
+        if (stampFile.exists()) return
+        if (npmDir.exists()) npmDir.deleteRecursively()
+        npmDir.mkdirs()
+        try {
+            java.util.zip.ZipInputStream(context.assets.open("npm.zip")).use { zis ->
+                var entry = zis.nextEntry
+                while (entry != null) {
+                    val entryName = entry.name.replace('\\', '/')
+                    val file = java.io.File(npmDir, entryName)
+                    if (entry.isDirectory || entryName.endsWith("/")) {
+                        file.mkdirs()
+                    } else {
+                        file.parentFile?.mkdirs()
+                        java.io.FileOutputStream(file).use { out ->
+                            val buffer = ByteArray(8192)
+                            var len: Int
+                            while (zis.read(buffer).also { len = it } > 0) {
+                                out.write(buffer, 0, len)
+                            }
+                        }
+                    }
+                    entry = zis.nextEntry
+                }
+            }
+            stampFile.createNewFile()
+        } catch (e: Exception) {
+            Log.e("PtyBridge", "Failed to extract NPM", e)
+        }
+    }
+
+    private fun setupSymlinks(context: android.content.Context, binPath: String, libPath: String) {
+        extractNpmIfNeeded(context)
+        extractGitTemplatesIfNeeded(context)
+
+        val filesDir   = context.filesDir.absolutePath
+        val usrDir     = filesDir + "/usr"
+        val usrBinDir  = usrDir + "/bin"
+        val usrEtcDir  = usrDir + "/etc"
+        val tmpDir     = filesDir + "/tmp"
+        val cacheDir   = filesDir + "/cache"
+        val libLinksDir = java.io.File(context.filesDir, "lib").absolutePath
+        val nativeLibPath = context.applicationInfo.nativeLibraryDir
+        
+        java.io.File(usrBinDir).mkdirs()
+        java.io.File(usrEtcDir).mkdirs()
+        java.io.File(tmpDir).mkdirs()
+        java.io.File(cacheDir).mkdirs()
+
+        // 1. DNS Configs
+        try {
+            val resolvConf = java.io.File(usrEtcDir, "resolv.conf")
+            java.io.FileOutputStream(resolvConf).use { it.write("nameserver 8.8.8.8\nnameserver 8.8.4.4\nnameserver 1.1.1.1\n".toByteArray()) }
+
+            val gitConfig = java.io.File(usrEtcDir, "gitconfig")
+            if (!gitConfig.exists()) {
+                java.io.FileOutputStream(gitConfig).use {
+                    it.write("[core]\n\tfileMode = false\n\tautocrlf = false\n[safe]\n\tdirectory = *\n".toByteArray())
+                }
+            }
+            
+            val dnsOverride = java.io.File(usrEtcDir, "dns-override.js")
+            val dnsContent = """
+                const dns = require('dns');
+                const net = require('net');
+                const { Resolver } = dns;
+                const resolver = new Resolver();
+                resolver.setServers(['8.8.8.8', '8.8.4.4', '1.1.1.1']);
+                const origLookup = dns.lookup;
+                dns.lookup = function(hostname, options, callback) {
+                  if (typeof options === 'function') { callback = options; options = {}; }
+                  if (typeof options === 'number') { options = { family: options }; }
+                  const family = (options && options.family) || 0;
+                  const all = (options && options.all) || false;
+                  if (net.isIP(hostname)) {
+                    const ipFamily = net.isIPv4(hostname) ? 4 : 6;
+                    const res = all ? [{address: hostname, family: ipFamily}] : hostname;
+                    return process.nextTick(() => callback(null, res, ipFamily));
+                  }
+                  const resolve = (family === 6) ? 'resolve6' : 'resolve4';
+                  resolver[resolve](hostname, (err, addresses) => {
+                    if (err || !addresses || addresses.length === 0) {
+                      if (all) return callback(err || new Error('ENOTFOUND'), []);
+                      return callback(err || new Error('ENOTFOUND'), null, 0);
+                    }
+                    if (all) {
+                      const res = addresses.map(a => ({address: a, family: (family === 6 ? 6 : 4)}));
+                      return callback(null, res);
+                    }
+                    callback(null, addresses[0], (family === 6 ? 6 : 4));
+                  });
+                };
+            """.trimIndent()
+            java.io.FileOutputStream(dnsOverride).use { it.write(dnsContent.toByteArray()) }
+        } catch (e: Exception) {
+            Log.e("PtyBridge", "Failed to create configs", e)
+        }
+
+        // 2. Generate init.sh
+        val initScript = """
+            export HOME="$filesDir"
+            export TMPDIR="$tmpDir"
+            export PREFIX="$usrDir"
+            export PATH="$usrBinDir:/system/bin:/system/xbin"
+            export OPENSSL_CONF="/dev/null"
+            export RESOLV_CONF="$usrEtcDir/resolv.conf"
+            export GIT_SSL_NO_VERIFY=true
+            export GIT_TEMPLATE_DIR="$filesDir/git_templates"
+            export GIT_CONFIG_NOSYSTEM=1
+            export GIT_CONFIG_GLOBAL="$usrEtcDir/gitconfig"
+            export GIT_EXEC_PATH="$nativeLibPath"
+            # export NODE_OPTIONS="--require $usrEtcDir/dns-override.js"
+            # export ARES_SERVERS="8.8.8.8,8.8.4.4,1.1.1.1"
+            export NATIVE_LIB_PATH="$nativeLibPath"
+            
+            # Setup standard bin directory with symlinks to APK libraries
+            # This allows sub-processes (like npm scripts) to find 'node' and 'git'
+            mkdir -p "$usrBinDir"
+            ln -sf "$nativeLibPath/libnode.so" "$usrBinDir/node"
+            ln -sf "$nativeLibPath/libgit.so" "$usrBinDir/git"
+            
+            export PATH="$usrBinDir:${'$'}PATH"
+            export LD_LIBRARY_PATH="$nativeLibPath:$libLinksDir"
+            
+            # NPM Stability tweaks
+            export NPM_CONFIG_MAXSOCKETS=2
+            export NPM_CONFIG_FETCH_RETRIES=5
+            export NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=15000
+            export NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=60000
+            export NPM_CONFIG_REGISTRY="https://registry.npmjs.org/"
+            export NPM_CONFIG_SCRIPTS_PREPEND_NODE=true
+            
+            # Use symlinks instead of functions where possible for better sub-process support
+            node() { "$usrBinDir/node" "$@"; }
+            git() { "$usrBinDir/git" "$@"; }
+            
+            # The "W^X" and Shebang fix: 
+            # 1. Makes binaries read-only (satisfies Android 10+ W^X policy)
+            # 2. Replaces broken .bin symlinks with shell wrappers (fixes missing /usr/bin/env)
+            _npm_fix() {
+                if [ -d "node_modules" ]; then
+                    echo "Applying Android Native Fixes..."
+                    # Fix EACCES by making binaries read-only
+                    find node_modules -type f -name "*" -executable -exec chmod 555 {} + 2>/dev/null || true
+                    find node_modules -type f -path "*/bin/*" -exec chmod 555 {} + 2>/dev/null || true
+                    
+                    # Fix Shebangs by converting .bin symlinks to wrappers
+                    if [ -d "node_modules/.bin" ]; then
+                        for bin in node_modules/.bin/*; do
+                            if [ -L "${'$'}bin" ]; then
+                                target=${'$'}(readlink -f "${'$'}bin")
+                                if head -n 1 "${'$'}target" | grep -q "node"; then
+                                    rm "${'$'}bin"
+                                    echo "#!/system/bin/sh" > "${'$'}bin"
+                                    echo "exec \"$usrBinDir/node\" \"${'$'}target\" \"\$@\"" >> "${'$'}bin"
+                                    chmod 755 "${'$'}bin"
+                                fi
+                            fi
+                        done
+                    fi
+                fi
+            }
+            
+            npm() { 
+                node "$filesDir/npm_pkg/bin/npm-cli.js" "$@"
+                _npm_fix
+            }
+            npx() { 
+                node "$filesDir/npm_pkg/bin/npx-cli.js" "$@"
+                _npm_fix
+            }
+            
+            alias clear="printf '\033[2J\033[H'"
+            alias ll='ls -al'
+            
+            # Force Next.js to use WASM instead of native SWC
+            export NEXT_SWC_LOAD_WASM=1
+            export NEXT_IGNORE_NATIVE_SWC=1
+            
+            # Setup DNS (Google and Cloudflare)
+            echo "options no-aaaa" > "${'$'}RESOLV_CONF"
+            echo "nameserver 8.8.8.8" >> "${'$'}RESOLV_CONF"
+            echo "nameserver 8.8.4.4" >> "${'$'}RESOLV_CONF"
+            echo "nameserver 1.1.1.1" >> "${'$'}RESOLV_CONF"
+        """.trimIndent()
+
+        try {
+            java.io.File(filesDir, "init.sh").writeText(initScript)
+        } catch (e: Exception) {
+            Log.e("PtyBridge", "Failed to create init.sh", e)
+        }
+    }
+
+    fun write(data: String) {
+        try {
+            outputStream?.write(data.toByteArray())
+            outputStream?.flush()
+        } catch (e: IOException) {
+            Log.e("PtyBridge", "Write failed", e)
+        }
+    }
+
+    fun read(buffer: ByteArray): Int {
+        return try {
+            inputStream?.read(buffer) ?: -1
+        } catch (e: IOException) {
+            Log.e("PtyBridge", "Read failed", e)
+            -1
+        }
+    }
+
+    fun resize(rows: Int, cols: Int) {
+        if (masterFd != -1) {
+            setWindowSize(masterFd, rows, cols)
+        }
+    }
+}

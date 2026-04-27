@@ -20,16 +20,28 @@ Traditional "VS Code on Android" solutions rely on WebViews and local web server
 
 ## Requirements
 
-### Validated
-- [x] Create a basic Terminal Emulator component with PTY support. (Validated in Phase 01: The Shell Foundation)
+### Phase 02: Binary Integration (Node.js & Git) [COMPLETED]
+- [x] Bundle Node.js and Git binaries via jniLibs.
+- [x] Update Native PTY Bridge to inject PATH.
+- [x] Implement blocking splash screen for environment verification.
 
-### Active
-- [ ] Implement a Skia-based text rendering engine for the editor.
-- [ ] Bundle and execute Node.js binary within the Android app context.
-- [ ] Implement a Kotlin-based LSP client.
-- [ ] Integrate Git binary for version control operations.
+### Phase 03: Project Management & File Operations [COMPLETED]
+- [x] Implement slide-in sidebar UI for Project Switching and File Tree.
+- [x] Automated per-project directory isolation.
+- [x] Integrated ZIP Import/Export for entire projects via Storage Access Framework.
+- [x] Added single file upload/download functionality.
 
-### Out of Scope
+### Phase 03.5: Terminal Hardening & DNS [COMPLETED]
+- [x] **Shell Function Strategy**: Bypassed Android 10+ `W^X` security policy by replacing wrapper scripts with in-memory shell functions.
+- [x] **DNS Monkey-Patch**: Implemented a universal DNS redirection for Node.js using `NODE_OPTIONS` to ensure connectivity in restricted environments.
+- [x] Fixed `Permission denied` errors for `git` and `node`.
+
+### Phase 04: Native Editor Polish [IN PROGRESS]
+- [ ] Implement robust syntax highlighting engine.
+- [ ] Add support for multiple tabs.
+- [ ] Integrate LSP (Language Server Protocol) via Node.js.
+
+## Out of Scope
 - [ ] Web-based UI / WebView support (this is a pure native project).
 - [ ] Cloud sync (V1 focuses on 100% local operation).
 
@@ -37,11 +49,13 @@ Traditional "VS Code on Android" solutions rely on WebViews and local web server
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Jetpack Compose | Modern Android standard with built-in Skia support. | Validated |
-| Bundled Node.js | Necessary for running VS Code extension host and LSPs. | — Pending |
+| Bundled Node.js | Necessary for running VS Code extension host and LSPs. | Validated |
 | PTY Bridge | Required for a "real" shell experience in the terminal. | Validated |
+| **Shell Functions** | **Crucial bypass for Android 10+ security (prevents Permission Denied on internal binaries).** | **Validated** |
+| DNS Redirect | Overrides broken system DNS lookups for stable npm/git networking. | Validated |
 
 ## Evolution
 This document evolves at phase transitions and milestone boundaries.
 
 ---
-*Last updated: 2026-04-25 after Phase 01*
+*Last updated: 2026-04-25 after Phase 03.5 Terminal Hardening*
