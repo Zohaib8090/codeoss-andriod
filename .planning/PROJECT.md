@@ -38,8 +38,14 @@ Traditional "VS Code on Android" solutions rely on WebViews and local web server
 
 ### Phase 04: Native Editor Polish [IN PROGRESS]
 - [ ] Implement robust syntax highlighting engine.
-- [ ] Add support for multiple tabs.
+- [/] Add support for multiple tabs (ViewModel logic implemented).
 - [ ] Integrate LSP (Language Server Protocol) via Node.js.
+
+### Phase 05: GitHub OAuth & Source Control [COMPLETED]
+- [x] **Native GitHub OAuth**: Implemented a professional Web Redirect flow using deep links (`codeoss://github-auth`).
+- [x] **Centralized Git Engine**: Refactored Source Control to use absolute binary paths and a unified environment (fixes "Detached" states).
+- [x] **Auto-Stash Switching**: Enabled seamless branch switching by automatically stashing/popping local changes.
+- [x] **Live Repository Info**: Added real-time branch detection and Remote URL display in the sidebar.
 
 ## Out of Scope
 - [ ] Web-based UI / WebView support (this is a pure native project).
@@ -58,4 +64,4 @@ Traditional "VS Code on Android" solutions rely on WebViews and local web server
 This document evolves at phase transitions and milestone boundaries.
 
 ---
-*Last updated: 2026-04-25 after Phase 03.5 Terminal Hardening*
+*Last updated: 2026-04-27 after Phase 05 Source Control & Auth*
