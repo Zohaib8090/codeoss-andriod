@@ -1,4 +1,45 @@
-node_modules/
+# Android
 build/
 .gradle/
+local.properties
 *.apk
+*.ap_
+*.dex
+*.class
+bin/
+gen/
+out/
+.cxx/
+.externalNativeBuild/
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+.project
+.classpath
+.settings/
+*.swp
+*.swo
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project Specific
+dl/
+extracted_git/
+extracted_node/
+*.txt
+!PROJECT.md
+!ROADMAP.md
+!STATE.md
+!CURRENT_TASK.md
+scripts/*.sh
+!scripts/
+!app/src/main/jniLibs/
