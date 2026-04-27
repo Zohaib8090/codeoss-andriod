@@ -19,9 +19,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        viewModel = androidx.lifecycle.ViewModelProvider(this)[TerminalViewModel::class.java]
         setContent {
             CodeOSSTheme {
-                viewModel = viewModel()
                 val isReady by viewModel.isReady.collectAsState()
                 
                 if (isReady) {
@@ -44,6 +44,7 @@ class MainActivity : ComponentActivity() {
             if (uri.scheme == "codeoss" && uri.host == "github-auth") {
                 val code = uri.getQueryParameter("code")
                 if (code != null && ::viewModel.isInitialized) {
+                    android.widget.Toast.makeText(this, "Auth code captured!", android.widget.Toast.LENGTH_SHORT).show()
                     viewModel.handleGithubCallback(code)
                 }
             }

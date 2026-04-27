@@ -29,13 +29,13 @@ fun SourceControlContent(viewModel: TerminalViewModel) {
     val gitChanges by viewModel.gitChanges.collectAsState()
     val gitLog by viewModel.gitLog.collectAsState()
     val gitBranches by viewModel.gitBranches.collectAsState()
+    val gitRemoteUrl by viewModel.gitRemoteUrl.collectAsState()
     val githubUser by viewModel.githubUser.collectAsState()
     val uiScale by viewModel.uiScale.collectAsState()
     val activeProject by viewModel.activeProject.collectAsState()
     
     var commitMessage by remember { mutableStateOf("") }
     var showBranchDialog by remember { mutableStateOf(false) }
-    var showLoginDialog by remember { mutableStateOf(false) }
     
     var stagedExpanded by remember { mutableStateOf(true) }
     var changesExpanded by remember { mutableStateOf(true) }
@@ -78,59 +78,6 @@ fun SourceControlContent(viewModel: TerminalViewModel) {
         )
     }
 
-    if (showLoginDialog) {
-        var user by remember { mutableStateOf("") }
-        var token by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { showLoginDialog = false },
-            title = { Text("Sign in to GitHub", color = Color.White) },
-            text = {
-                Column {
-                    Text("Enter your GitHub credentials for automatic authentication (Push/Pull).", color = Color.Gray, fontSize = 12.sp)
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = user, onValueChange = { user = it },
-                        label = { Text("GitHub Username") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        textStyle = TextStyle(color = Color.White),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF58A6FF),
-                            unfocusedBorderColor = Color.Gray,
-                            focusedLabelColor = Color(0xFF58A6FF)
-                        )
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = token, onValueChange = { token = it },
-                        label = { Text("Personal Access Token") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        textStyle = TextStyle(color = Color.White),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF58A6FF),
-                            unfocusedBorderColor = Color.Gray,
-                            focusedLabelColor = Color(0xFF58A6FF)
-                        )
-                    )
-                    TextButton(onClick = { /* Open GitHub Token URL */ }) {
-                        Text("Generate Token on GitHub", color = Color(0xFF58A6FF), fontSize = 11.sp)
-                    }
-                }
-            },
-            confirmButton = {
-                Button(onClick = { 
-                    if (user.isNotEmpty() && token.isNotEmpty()) {
-                        viewModel.saveGithubAuth(user, token)
-                        showLoginDialog = false
-                    }
-                }) { Text("Sign In") }
-            },
-            dismissButton = { TextButton(onClick = { showLoginDialog = false }) { Text("Cancel") } },
-            containerColor = Color(0xFF161B22)
-        )
-    }
-
     Column(modifier = Modifier.fillMaxSize().background(Color(0xFF161B22))) {
         // Header
         Row(
@@ -139,8 +86,6 @@ fun SourceControlContent(viewModel: TerminalViewModel) {
         ) {
             Text("SOURCE CONTROL", color = Color(0xFF8B949E), fontSize = (11 * uiScale).sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
-            // This is the 3-dot menu the user asked about. 
-            // It's a standard "More Actions" menu in IDEs for things like Stash, Clean, etc.
             Icon(Icons.Default.MoreHoriz, null, tint = Color.Gray, modifier = Modifier.size((16 * uiScale).dp))
         }
 
@@ -164,7 +109,7 @@ fun SourceControlContent(viewModel: TerminalViewModel) {
                         )
                     }
                     Button(
-                        onClick = { if (githubUser != null) viewModel.logoutGithub() else showLoginDialog = true },
+                        onClick = { if (githubUser != null) viewModel.logoutGithub() else viewModel.loginGithub() },
                         colors = ButtonDefaults.buttonColors(containerColor = if (githubUser != null) Color(0xFFF85149) else Color(0xFF238636)),
                         shape = MaterialTheme.shapes.extraSmall,
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp)
@@ -178,11 +123,10 @@ fun SourceControlContent(viewModel: TerminalViewModel) {
             // Repositories stub
             item {
                 SourceControlSectionHeader("REPOSITORIES", uiScale, true) {}
-                RepositoryItem(activeProject ?: "No Project", gitBranch, uiScale, viewModel) {
+                RepositoryItem(activeProject ?: "No Project", gitBranch, gitRemoteUrl, uiScale, viewModel) {
                     showBranchDialog = true
                 }
             }
-// ... rest of the content remains same
 
             // Commit Input
             item {
@@ -194,10 +138,10 @@ fun SourceControlContent(viewModel: TerminalViewModel) {
                             placeholder = { Text("Message (Ctrl+Enter to commit)", fontSize = (12 * uiScale).sp, color = Color.Gray) },
                             modifier = Modifier.fillMaxWidth(),
                             textStyle = LocalTextStyle.current.copy(fontSize = (12 * uiScale).sp, fontFamily = FontFamily.Monospace, color = Color.White),
-                            colors = TextFieldDefaults.outlinedTextFieldColors(
+                            colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = Color(0xFF30363D),
                                 unfocusedBorderColor = Color(0xFF30363D),
-                                containerColor = Color(0xFF0D1117)
+                                focusedLabelColor = Color(0xFF58A6FF)
                             )
                         )
                         Spacer(Modifier.height(8.dp))
@@ -281,16 +225,21 @@ fun SourceControlSectionHeader(title: String, uiScale: Float, expanded: Boolean,
 }
 
 @Composable
-fun RepositoryItem(name: String, branch: String, uiScale: Float, viewModel: TerminalViewModel, onBranchClick: () -> Unit) {
+fun RepositoryItem(name: String, branch: String, remoteUrl: String?, uiScale: Float, viewModel: TerminalViewModel, onBranchClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onBranchClick() }
             .background(Color(0xFF090C10))
-            .padding(horizontal = 24.dp, vertical = 4.dp),
+            .padding(horizontal = 24.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(name, color = Color(0xFF58A6FF), fontSize = (12 * uiScale).sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(name, color = Color(0xFF58A6FF), fontSize = (12 * uiScale).sp, fontWeight = FontWeight.SemiBold)
+            if (remoteUrl != null) {
+                Text(remoteUrl, color = Color.DarkGray, fontSize = (9 * uiScale).sp, maxLines = 1)
+            }
+        }
         Text(branch, color = Color.Gray, fontSize = (11 * uiScale).sp, fontFamily = FontFamily.Monospace)
         Spacer(Modifier.width(8.dp))
         
