@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.border
+import androidx.compose.animation.animateContentSize
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -29,7 +31,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.codeossandroid.viewmodel.TerminalViewModel
+import coil.compose.AsyncImage
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 
@@ -59,8 +65,13 @@ fun IDEView(viewModel: TerminalViewModel) {
                             fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold
                         )
                     }
+                    val activeExtensionDetail by viewModel.activeExtensionDetail.collectAsState()
                     Box(modifier = Modifier.fillMaxWidth().weight(1f).background(Color(0xFF0D1117))) {
-                        CodeEditor(viewModel)
+                        if (activeExtensionDetail != null) {
+                            ExtensionDetailView(activeExtensionDetail!!, viewModel)
+                        } else {
+                            CodeEditor(viewModel)
+                        }
                     }
                     if (isPanelVisible) {
                         Box(modifier = Modifier.fillMaxWidth().height(2.dp).background(Color(0xFF30363D)).draggable(
@@ -107,7 +118,367 @@ fun ProjectSidebar(viewModel: TerminalViewModel) {
             TerminalViewModel.SidebarMode.EXPLORER -> FileExplorerContent(viewModel)
             TerminalViewModel.SidebarMode.GIT -> SourceControlContent(viewModel)
             TerminalViewModel.SidebarMode.SEARCH -> SearchContent(viewModel)
+            TerminalViewModel.SidebarMode.EXTENSIONS -> ExtensionsContent(viewModel)
+            TerminalViewModel.SidebarMode.MARKETPLACE -> Text("Marketplace Coming Soon", color = Color.Gray, modifier = Modifier.padding(16.dp))
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ExtensionsContent(viewModel: TerminalViewModel) {
+    val uiScale by viewModel.uiScale.collectAsState()
+    val marketplaceExtensions by viewModel.marketplaceExtensions.collectAsState()
+    val isSearching by viewModel.isSearchingExtensions.collectAsState()
+    var searchQuery by remember { mutableStateOf("") }
+
+    LaunchedEffect(searchQuery) {
+        if (searchQuery.length >= 2) {
+            viewModel.searchExtensions(searchQuery)
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF0D1117))
+    ) {
+        // Premium Header
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "EXTENSIONS",
+                color = Color.White.copy(alpha = 0.7f),
+                fontSize = (12 * uiScale).sp,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = 1.sp
+            )
+            Spacer(Modifier.weight(1f))
+            Icon(
+                Icons.Default.MoreVert,
+                null,
+                tint = Color.Gray,
+                modifier = Modifier.size((18 * uiScale).dp)
+            )
+        }
+
+        // Rebuilt Search Bar for Perfect Text Rendering
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            placeholder = { 
+                Text(
+                    "Search Extensions in Marketplace", 
+                    fontSize = (13 * uiScale).sp, 
+                    color = Color.Gray
+                ) 
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .heightIn(min = (52 * uiScale).dp), // Use heightIn to prevent clipping
+            textStyle = androidx.compose.ui.text.TextStyle(
+                color = Color.White, 
+                fontSize = (15 * uiScale).sp, // Slightly larger for better readability
+                fontFamily = FontFamily.SansSerif
+            ),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color(0xFF58A6FF),
+                unfocusedBorderColor = Color(0xFF30363D),
+                focusedContainerColor = Color(0xFF161B22),
+                unfocusedContainerColor = Color(0xFF161B22),
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White,
+                cursorColor = Color(0xFF58A6FF)
+            ),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+            leadingIcon = { Icon(Icons.Default.Search, null, tint = Color.Gray, modifier = Modifier.size((20 * uiScale).dp)) },
+            singleLine = true
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 16.dp)
+            ) {
+                if (searchQuery.isBlank()) {
+                    item {
+                        Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                            Text(
+                                "Type to search for extensions...",
+                                color = Color.Gray,
+                                fontSize = (13 * uiScale).sp
+                            )
+                        }
+                    }
+                } else {
+                    if (marketplaceExtensions.isEmpty() && !isSearching) {
+                        item {
+                            Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                                Text(
+                                    "No extensions found for \"$searchQuery\"",
+                                    color = Color.Gray,
+                                    fontSize = (13 * uiScale).sp
+                                )
+                            }
+                        }
+                    } else {
+                        item {
+                            ExtensionSection("MARKETPLACE", uiScale) { /* Header only */ }
+                        }
+                        items(marketplaceExtensions) { ext ->
+                            ExtensionItem(
+                                name = ext.displayName,
+                                author = ext.publisher,
+                                desc = ext.description,
+                                version = ext.version,
+                                iconUrl = ext.iconUrl,
+                                downloads = ext.downloadCount,
+                                uiScale = uiScale,
+                                onDetailClick = { viewModel.setActiveExtensionDetail(ext) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Search Progress Indicator
+            if (isSearching) {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().height(2.dp),
+                    color = Color(0xFF58A6FF),
+                    trackColor = Color.Transparent
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun ExtensionSection(title: String, uiScale: Float, content: @Composable () -> Unit) {
+    var expanded by remember { mutableStateOf(true) }
+    
+    Column(modifier = Modifier.animateContentSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .background(Color(0xFF21262D).copy(alpha = 0.5f))
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                if (expanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight,
+                null,
+                tint = Color.Gray,
+                modifier = Modifier.size((16 * uiScale).dp)
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                title, 
+                color = Color.White, 
+                fontSize = (11 * uiScale).sp, 
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.5.sp
+            )
+        }
+        if (expanded) {
+            content()
+        }
+    }
+}
+
+@Composable
+fun ExtensionItem(
+    name: String, 
+    author: String, 
+    desc: String, 
+    version: String, 
+    iconUrl: String?, 
+    downloads: Int,
+    uiScale: Float,
+    onDetailClick: () -> Unit = {}
+) {
+    var isHovered by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onDetailClick() }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        // Icon Container with Shadow/Border
+        Box(
+            modifier = Modifier
+                .size((48 * uiScale).dp)
+                .background(Color(0xFF161B22), shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+                .border(1.dp, Color(0xFF30363D), shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+                .padding(6.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            if (iconUrl != null) {
+                AsyncImage(
+                    model = iconUrl,
+                    contentDescription = name,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Icon(Icons.Default.Extension, null, tint = Color(0xFF58A6FF), modifier = Modifier.size((28 * uiScale).dp))
+            }
+        }
+        
+        Spacer(modifier = Modifier.width(16.dp))
+        
+        Column(modifier = Modifier.weight(1f)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        name, 
+                        color = Color(0xFF58A6FF), 
+                        fontSize = (14 * uiScale).sp, 
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(author, color = Color.Gray, fontSize = (11 * uiScale).sp)
+                        Spacer(Modifier.width(8.dp))
+                        Icon(Icons.Default.CloudDownload, null, tint = Color.Gray.copy(alpha = 0.5f), modifier = Modifier.size((12 * uiScale).dp))
+                        Spacer(Modifier.width(2.dp))
+                        Text(formatDownloads(downloads), color = Color.Gray.copy(alpha = 0.5f), fontSize = (10 * uiScale).sp)
+                    }
+                }
+                
+                // Premium Install Button
+                Button(
+                    onClick = { /* Install */ },
+                    modifier = Modifier.height((28 * uiScale).dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF238636),
+                        contentColor = Color.White
+                    ),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
+                ) {
+                    Text("Install", fontSize = (11 * uiScale).sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            
+            Spacer(Modifier.height(4.dp))
+            
+            Text(
+                desc, 
+                color = Color.Gray, 
+                fontSize = (12 * uiScale).sp, 
+                maxLines = 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                lineHeight = (16 * uiScale).sp
+            )
+        }
+    }
+    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = Color(0xFF30363D).copy(alpha = 0.5f))
+}
+
+@Composable
+fun ExtensionDetailView(extension: TerminalViewModel.MarketplaceExtension, viewModel: TerminalViewModel) {
+    val uiScale by viewModel.uiScale.collectAsState()
+    
+    Column(modifier = Modifier.fillMaxSize().background(Color(0xFF0D1117)).verticalScroll(rememberScrollState())) {
+        // Header with Close Button
+        Row(
+            modifier = Modifier.fillMaxWidth().background(Color(0xFF161B22)).padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Extension Details", color = Color.Gray, fontSize = (12 * uiScale).sp)
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = { viewModel.setActiveExtensionDetail(null) }, modifier = Modifier.size((24 * uiScale).dp)) {
+                Icon(Icons.Default.Close, null, tint = Color.Gray)
+            }
+        }
+        
+        Row(modifier = Modifier.padding(24.dp)) {
+            // Icon
+            Box(
+                modifier = Modifier
+                    .size((128 * uiScale).dp)
+                    .background(Color(0xFF161B22), shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                    .border(1.dp, Color(0xFF30363D), shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                    .padding(16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                if (extension.iconUrl != null) {
+                    AsyncImage(model = extension.iconUrl, contentDescription = null, modifier = Modifier.fillMaxSize())
+                } else {
+                    Icon(Icons.Default.Extension, null, tint = Color(0xFF58A6FF), modifier = Modifier.size((64 * uiScale).dp))
+                }
+            }
+            
+            Spacer(Modifier.width(24.dp))
+            
+            Column {
+                Text(extension.displayName, color = Color.White, fontSize = (28 * uiScale).sp, fontWeight = FontWeight.Bold)
+                Text(extension.publisher, color = Color(0xFF58A6FF), fontSize = (16 * uiScale).sp)
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Button(
+                        onClick = { /* Install */ },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF238636)),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
+                    ) {
+                        Text("Install", fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Text(extension.version, color = Color.Gray, fontSize = (14 * uiScale).sp)
+                }
+            }
+        }
+        
+        HorizontalDivider(modifier = Modifier.padding(horizontal = 24.dp), color = Color(0xFF30363D))
+        
+        Column(modifier = Modifier.padding(24.dp)) {
+            Text("Description", color = Color.White, fontSize = (18 * uiScale).sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(12.dp))
+            Text(
+                extension.description,
+                color = Color.Gray,
+                fontSize = (14 * uiScale).sp,
+                lineHeight = (20 * uiScale).sp
+            )
+            
+            Spacer(Modifier.height(32.dp))
+            Text("Information", color = Color.White, fontSize = (18 * uiScale).sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(12.dp))
+            InfoRow("Publisher", extension.publisher, uiScale)
+            InfoRow("Downloads", formatDownloads(extension.downloadCount), uiScale)
+            InfoRow("Identifier", "${extension.namespace}.${extension.name}", uiScale)
+        }
+    }
+}
+
+@Composable
+fun InfoRow(label: String, value: String, uiScale: Float) {
+    Row(modifier = Modifier.padding(vertical = 4.dp)) {
+        Text(label, color = Color.Gray, modifier = Modifier.width(100.dp), fontSize = (13 * uiScale).sp)
+        Text(value, color = Color.White, fontSize = (13 * uiScale).sp)
+    }
+}
+
+fun formatDownloads(count: Int): String {
+    return when {
+        count >= 1_000_000 -> "${String.format("%.1f", count / 1_000_000f)}M"
+        count >= 1_000 -> "${count / 1_000}K"
+        else -> count.toString()
     }
 }
 
@@ -275,6 +646,7 @@ fun BottomPanel(viewModel: TerminalViewModel, height: Dp) {
                     "TERMINAL" -> TerminalTabContent(viewModel)
                     "PROBLEMS" -> ProblemsView(viewModel)
                     "OUTPUT" -> OutputView(viewModel)
+                    "PORTS" -> PortsTabContent(viewModel)
                     else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(selectedTab, color = Color.DarkGray) }
                 }
             }
@@ -331,4 +703,75 @@ fun FilePreview(file: java.io.File, onDismiss: () -> Unit) {
             }
         }
     )
+}
+
+@Composable
+fun PortsTabContent(viewModel: TerminalViewModel) {
+    val activeTunnels by viewModel.activeTunnels.collectAsState()
+    var portInput by remember { mutableStateOf("") }
+    val uiScale by viewModel.uiScale.collectAsState()
+    val context = LocalContext.current
+
+    Column(modifier = Modifier.fillMaxSize().background(Color(0xFF0D1117)).padding(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            BasicTextField(
+                value = portInput,
+                onValueChange = { portInput = it.filter { char -> char.isDigit() } },
+                textStyle = TextStyle(color = Color.White, fontFamily = FontFamily.Monospace, fontSize = (13 * uiScale).sp),
+                modifier = Modifier.weight(1f).background(Color(0xFF161B22)).padding(10.dp),
+                decorationBox = { inner ->
+                    Box(contentAlignment = Alignment.CenterStart) {
+                        if (portInput.isEmpty()) Text("Enter port (e.g. 3000)", color = Color.DarkGray, fontFamily = FontFamily.Monospace)
+                        inner()
+                    }
+                }
+            )
+            Spacer(Modifier.width(16.dp))
+            Button(
+                onClick = { 
+                    portInput.toIntOrNull()?.let { viewModel.startTunnel(it) }
+                    portInput = ""
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF58A6FF)),
+                enabled = portInput.isNotBlank()
+            ) {
+                Text("Forward Port", color = Color.White, fontSize = (12 * uiScale).sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        HorizontalDivider(color = Color(0xFF30363D))
+        Spacer(Modifier.height(8.dp))
+
+        if (activeTunnels.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("No active port forwards", color = Color.Gray, fontSize = (12 * uiScale).sp)
+            }
+        } else {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                activeTunnels.forEach { tunnel ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).background(Color(0xFF161B22)).padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Port ${tunnel.port}", color = Color.White, fontWeight = FontWeight.Bold, fontSize = (14 * uiScale).sp)
+                            Spacer(Modifier.height(4.dp))
+                            Text(tunnel.url, color = Color(0xFF58A6FF), fontFamily = FontFamily.Monospace, fontSize = (12 * uiScale).sp,
+                                modifier = Modifier.clickable {
+                                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                    val clip = android.content.ClipData.newPlainText("URL", tunnel.url)
+                                    clipboard.setPrimaryClip(clip)
+                                    android.widget.Toast.makeText(context, "URL Copied", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            )
+                        }
+                        IconButton(onClick = { viewModel.stopTunnel(tunnel.port) }) {
+                            Icon(Icons.Default.StopCircle, "Stop Tunnel", tint = Color(0xFFF85149))
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
