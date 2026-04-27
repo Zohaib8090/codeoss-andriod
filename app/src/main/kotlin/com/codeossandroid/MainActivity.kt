@@ -24,6 +24,15 @@ class MainActivity : ComponentActivity() {
             CodeOSSTheme {
                 val isReady by viewModel.isReady.collectAsState()
                 
+                // Automatically ask for notification permission on startup
+                androidx.compose.runtime.LaunchedEffect(Unit) {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                        if (androidx.core.content.ContextCompat.checkSelfPermission(this@MainActivity, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                            androidx.core.app.ActivityCompat.requestPermissions(this@MainActivity, arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
+                        }
+                    }
+                }
+
                 if (isReady) {
                     IDEView(viewModel)
                 } else {

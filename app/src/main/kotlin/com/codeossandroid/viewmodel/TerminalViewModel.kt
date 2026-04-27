@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.mutableStateListOf
+import org.json.JSONObject
+import org.json.JSONArray
 
 data class IDEProblem(
     val file: java.io.File,
@@ -39,6 +41,8 @@ data class GitChange(
     val status: String, // M, A, D, ??
     val isStaged: Boolean
 )
+
+data class ForwardedPort(val port: Int, val url: String, val process: Process)
 
 class TerminalViewModel(application: Application) : AndroidViewModel(application) {
     private val _instances = MutableStateFlow<List<TerminalInstance>>(emptyList())
@@ -167,11 +171,97 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private val _expandedDirs = MutableStateFlow<Set<String>>(emptySet())
     val expandedDirs = _expandedDirs.asStateFlow()
     
-    enum class SidebarMode { PROJECTS, EXPLORER, SEARCH, GIT }
+    enum class SidebarMode { PROJECTS, EXPLORER, SEARCH, GIT, EXTENSIONS, MARKETPLACE }
     private val _sidebarMode = MutableStateFlow(SidebarMode.EXPLORER)
     val sidebarMode = _sidebarMode.asStateFlow()
     private val _searchQuery = MutableStateFlow("")
     val searchQuery = _searchQuery.asStateFlow()
+    
+    data class MarketplaceExtension(
+        val name: String,
+        val displayName: String,
+        val publisher: String,
+        val description: String,
+        val version: String,
+        val iconUrl: String?,
+        val downloadCount: Int,
+        val namespace: String
+    )
+
+    private val _marketplaceExtensions = MutableStateFlow<List<MarketplaceExtension>>(emptyList())
+    val marketplaceExtensions = _marketplaceExtensions.asStateFlow()
+    private val _isSearchingExtensions = MutableStateFlow(false)
+    val isSearchingExtensions = _isSearchingExtensions.asStateFlow()
+    
+    private val _activeExtensionDetail = MutableStateFlow<MarketplaceExtension?>(null)
+    val activeExtensionDetail = _activeExtensionDetail.asStateFlow()
+
+    fun setActiveExtensionDetail(extension: MarketplaceExtension?) {
+        _activeExtensionDetail.value = extension
+    }
+
+    fun searchExtensions(query: String) {
+        if (query.isBlank()) {
+            _marketplaceExtensions.value = emptyList()
+            return
+        }
+        
+        viewModelScope.launch(Dispatchers.IO) {
+            _isSearchingExtensions.value = true
+            try {
+                // Search for extensions with better filtering
+                val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
+                val url = java.net.URL("https://open-vsx.org/api/-/search?text=$encodedQuery&size=50")
+                val connection = url.openConnection() as java.net.HttpURLConnection
+                connection.connectTimeout = 15000
+                connection.readTimeout = 15000
+                val text = connection.inputStream.bufferedReader().use { it.readText() }
+                
+                val json = org.json.JSONObject(text)
+                val results = json.getJSONArray("extensions")
+                val extensions = mutableListOf<MarketplaceExtension>()
+                
+                val lowerQuery = query.lowercase()
+                for (i in 0 until results.length()) {
+                    val ext = results.getJSONObject(i)
+                    val dName = ext.optString("displayName", "").lowercase()
+                    val mName = ext.optString("name", "").lowercase()
+                    val desc = ext.optString("description", "").lowercase()
+                    val pub = ext.optString("namespace", "").lowercase()
+                    
+                    // Client-side match check to filter out 'generic popular' results
+                    if (dName.contains(lowerQuery) || mName.contains(lowerQuery) || 
+                        desc.contains(lowerQuery) || pub.contains(lowerQuery)) {
+                        
+                        val files = ext.optJSONObject("files")
+                        val iconUrl = files?.optString("icon", null)
+                        
+                        extensions.add(MarketplaceExtension(
+                            name = ext.optString("name", "unknown"),
+                            displayName = ext.optString("displayName", ext.optString("name", "Unknown")),
+                            publisher = ext.optString("namespace", "unknown"),
+                            description = ext.optString("description", "No description"),
+                            version = ext.optString("version", "0.0.1"),
+                            iconUrl = iconUrl,
+                            downloadCount = ext.optInt("downloadCount", 0),
+                            namespace = ext.optString("namespace", "unknown")
+                        ))
+                    }
+                }
+                
+                // Priority: Pin Google results to top if searching for Gemini
+                if (lowerQuery.contains("gemini")) {
+                    extensions.sortByDescending { it.publisher.lowercase() == "google" }
+                }
+
+                _marketplaceExtensions.value = extensions
+            } catch (e: Exception) {
+                Log.e("CodeOSS", "Marketplace search failed", e)
+            } finally {
+                _isSearchingExtensions.value = false
+            }
+        }
+    }
     
     fun setSidebarMode(mode: SidebarMode) {
         _sidebarMode.value = mode
@@ -191,6 +281,99 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     val gitBranches = _gitBranches.asStateFlow()
     private val _gitRemoteUrl = MutableStateFlow<String?>(null)
     val gitRemoteUrl = _gitRemoteUrl.asStateFlow()
+
+    private val _activeTunnels = MutableStateFlow<List<ForwardedPort>>(emptyList())
+    val activeTunnels = _activeTunnels.asStateFlow()
+
+    fun startTunnel(port: Int) {
+        if (_activeTunnels.value.any { it.port == port }) return
+        
+        viewModelScope.launch(Dispatchers.IO) {
+            val context = getApplication<Application>()
+            val nativeLibPath = context.applicationInfo.nativeLibraryDir
+            val filesDir = context.filesDir.absolutePath
+            val boreBin = "$nativeLibPath/libbore.so"
+            val logFile = java.io.File(filesDir, "tunnel.log")
+
+            val env = arrayOf(
+                "HOME=$filesDir",
+                "LD_LIBRARY_PATH=$nativeLibPath"
+            )
+
+            try {
+                logFile.writeText("--- Bore Tunnel Starting ---\n")
+                
+                // We connect to bore.pub via IP (161.35.110.36) to bypass Android DNS issues
+                val process = Runtime.getRuntime().exec(
+                    arrayOf(boreBin, "local", port.toString(), "--to", "161.35.110.36"),
+                    env
+                )
+                val newTunnel = ForwardedPort(port, "Starting...", process)
+                _activeTunnels.value = _activeTunnels.value + newTunnel
+
+                // Capture logs in real-time
+                viewModelScope.launch(Dispatchers.IO) {
+                    val reader = process.inputStream.bufferedReader()
+                    var line: String?
+                    while (reader.readLine().also { line = it } != null) {
+                        val l = line ?: continue
+                        Log.d("CodeOSS-Bore", l)
+                        logFile.appendText("OUT: $l\n")
+                        
+                        // Bore output: "listening at 161.35.110.36:12345"
+                        if (l.contains("listening at 161.35.110.36:")) {
+                            val remotePort = l.substringAfter("listening at 161.35.110.36:").trim()
+                            val url = "http://bore.pub:$remotePort"
+                            _activeTunnels.value = _activeTunnels.value.map {
+                                if (it.port == port) it.copy(url = url) else it
+                            }
+                        }
+                    }
+                }
+
+                viewModelScope.launch(Dispatchers.IO) {
+                    val errReader = process.errorStream.bufferedReader()
+                    var errLine: String?
+                    while (errReader.readLine().also { errLine = it } != null) {
+                        val l = errLine ?: continue
+                        Log.e("CodeOSS-Bore", "ERR: $l")
+                        logFile.appendText("ERR: $l\n")
+                        
+                        // If Bore fails to connect, surface it
+                        if (l.contains("error") || l.contains("failed")) {
+                            _activeTunnels.value = _activeTunnels.value.map {
+                                if (it.port == port && it.url == "Starting...") it.copy(url = "Error: ${l.take(50)}") else it
+                            }
+                        }
+                    }
+                }
+
+            } catch (e: Exception) {
+                Log.e("CodeOSS", "Bore failed for port $port", e)
+                _activeTunnels.value = _activeTunnels.value.map {
+                    if (it.port == port) it.copy(url = "Error: ${e.message}") else it
+                }
+            }
+        }
+    }
+
+    fun stopTunnel(port: Int) {
+        val tunnel = _activeTunnels.value.find { it.port == port } ?: return
+        
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                tunnel.process.destroy()
+                // Also try to destroy forcibly if it doesn't stop
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    tunnel.process.destroyForcibly()
+                }
+            } catch (e: Exception) {
+                Log.e("CodeOSS", "Failed to destroy tunnel process", e)
+            }
+        }
+        
+        _activeTunnels.value = _activeTunnels.value.filter { it.port != port }
+    }
 
     private fun runGit(vararg args: String): Process? {
         val proj = _activeProject.value ?: return null
@@ -671,6 +854,20 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     val read = pty.read(buffer)
                     if (read > 0) {
                         val text = String(buffer, 0, read)
+                        
+                        // Auto-Port Detection
+                        val portRegex = Regex("http://(?:localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0):(\\d+)")
+                        portRegex.findAll(text).forEach { match ->
+                            val port = match.groupValues[1].toIntOrNull()
+                            if (port != null && _activeTunnels.value.none { it.port == port }) {
+                                Log.d("CodeOSS", "Auto-detected port: $port")
+                                startTunnel(port)
+                                withContext(Dispatchers.Main) {
+                                    android.widget.Toast.makeText(getApplication(), "Auto-Forwarded Port $port", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+
                         withContext(Dispatchers.Main) { 
                             instance.processOutput(text) 
                         }

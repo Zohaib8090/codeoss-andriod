@@ -48,6 +48,16 @@ fun ActivityBar(viewModel: TerminalViewModel) {
             Icon(Icons.Default.Search, "Search", tint = if (sidebarOpen && sidebarMode == TerminalViewModel.SidebarMode.SEARCH) Color.White else Color.Gray, modifier = Modifier.size(iconSize))
         }
 
+        // Extensions Button
+        IconButton(onClick = { viewModel.setSidebarMode(TerminalViewModel.SidebarMode.EXTENSIONS) }, modifier = Modifier.size(barWidth)) {
+            Icon(Icons.Default.Extension, "Extensions", tint = if (sidebarOpen && sidebarMode == TerminalViewModel.SidebarMode.EXTENSIONS) Color.White else Color.Gray, modifier = Modifier.size(iconSize))
+        }
+
+        // Marketplace Button
+        IconButton(onClick = { viewModel.setSidebarMode(TerminalViewModel.SidebarMode.MARKETPLACE) }, modifier = Modifier.size(barWidth)) {
+            Icon(Icons.Default.Storefront, "Marketplace", tint = if (sidebarOpen && sidebarMode == TerminalViewModel.SidebarMode.MARKETPLACE) Color.White else Color.Gray, modifier = Modifier.size(iconSize))
+        }
+
         // Terminal Panel Button
         IconButton(onClick = { viewModel.togglePanel(!isPanelVisible) }, modifier = Modifier.size(barWidth)) {
             Icon(Icons.Default.Terminal, "Terminal", tint = if (isPanelVisible) Color.White else Color.Gray, modifier = Modifier.size(iconSize))

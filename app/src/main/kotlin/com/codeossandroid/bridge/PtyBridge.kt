@@ -115,9 +115,21 @@ class PtyBridge {
         }
     }
 
+    private fun extractTunnelScript(context: android.content.Context) {
+        val outFile = java.io.File(context.filesDir, "tunnel.js")
+        try {
+            context.assets.open("tunnel/tunnel.js").use { input ->
+                outFile.outputStream().use { output -> input.copyTo(output) }
+            }
+        } catch (e: Exception) {
+            Log.e("PtyBridge", "Failed to extract tunnel.js", e)
+        }
+    }
+
     private fun setupSymlinks(context: android.content.Context, binPath: String, libPath: String) {
         extractNpmIfNeeded(context)
         extractGitTemplatesIfNeeded(context)
+        extractTunnelScript(context)
 
         val filesDir   = context.filesDir.absolutePath
         val usrDir     = filesDir + "/usr"
@@ -130,6 +142,7 @@ class PtyBridge {
         
         java.io.File(usrBinDir).mkdirs()
         java.io.File(usrEtcDir).mkdirs()
+        java.io.File(usrDir + "/lib").mkdirs()
         java.io.File(tmpDir).mkdirs()
         java.io.File(cacheDir).mkdirs()
 
