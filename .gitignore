@@ -35,6 +35,17 @@ Thumbs.db
 dl/
 extracted_git/
 extracted_node/
+scratch/
+Spoton-web/
+.helm-diag/
+build_error.txt
+build_log.txt
+build_log_utf8.txt
+compile_log.txt
+compile_log_2.txt
+compile_log_3.txt
+compile_log_4.txt
+log.txt
 *.txt
 !PROJECT.md
 !ROADMAP.md
