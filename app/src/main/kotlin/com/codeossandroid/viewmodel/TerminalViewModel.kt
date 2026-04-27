@@ -64,8 +64,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     val githubToken = _githubToken.asStateFlow()
 
     fun loginGithub() {
-        // Replace with your actual Client ID
-        val clientId = "YOUR_CLIENT_ID" 
+        val clientId = "Ov23liGDwcWLayi70rk2" 
         val redirectUri = "codeoss://github-auth"
         val url = "https://github.com/login/oauth/authorize?client_id=$clientId&scope=repo,user&redirect_uri=$redirectUri"
         
@@ -78,10 +77,8 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 _setupStatus.value = "Exchanging GitHub code..."
-                // NOTE: In a real app, you'd use a backend proxy to avoid leaking the CLIENT_SECRET
-                // But here we'll assume the user might provide it or we're using a public flow if possible.
-                val clientId = "YOUR_CLIENT_ID"
-                val clientSecret = "YOUR_CLIENT_SECRET"
+                val clientId = "Ov23liGDwcWLayi70rk2"
+                val clientSecret = "961d371f7bd737f4d3de71f13f6b9dfebfed118c"
                 
                 val url = java.net.URL("https://github.com/login/oauth/access_token")
                 val conn = url.openConnection() as java.net.HttpURLConnection
@@ -93,6 +90,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 conn.outputStream.write(params.toByteArray())
                 
                 val response = conn.inputStream.bufferedReader().readText()
+                Log.d("CodeOSS", "OAuth Response: $response")
                 val json = org.json.JSONObject(response)
                 val token = json.optString("access_token")
                 
@@ -104,18 +102,27 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     userConn.setRequestProperty("Accept", "application/vnd.github.v3+json")
                     
                     val userResponse = userConn.inputStream.bufferedReader().readText()
+                    Log.d("CodeOSS", "User Response: $userResponse")
                     val userJson = org.json.JSONObject(userResponse)
                     val login = userJson.getString("login")
                     
                     withContext(Dispatchers.Main) {
                         saveGithubAuth(login, token)
+                        android.widget.Toast.makeText(getApplication(), "Logged in as $login", android.widget.Toast.LENGTH_LONG).show()
                         _setupStatus.value = "Ready"
                     }
                 } else {
+                    val error = json.optString("error_description", "Unknown error")
                     Log.e("CodeOSS", "OAuth failed: $response")
+                    withContext(Dispatchers.Main) {
+                        android.widget.Toast.makeText(getApplication(), "Login Failed: $error", android.widget.Toast.LENGTH_LONG).show()
+                    }
                 }
             } catch (e: Exception) {
                 Log.e("CodeOSS", "GitHub callback failed", e)
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(getApplication(), "Error: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                }
             } finally {
                 _setupStatus.value = "Ready"
             }
@@ -182,165 +189,170 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     val gitLog = _gitLog.asStateFlow()
     private val _gitBranches = MutableStateFlow<List<String>>(emptyList())
     val gitBranches = _gitBranches.asStateFlow()
+    private val _gitRemoteUrl = MutableStateFlow<String?>(null)
+    val gitRemoteUrl = _gitRemoteUrl.asStateFlow()
+
+    private fun runGit(vararg args: String): Process? {
+        val proj = _activeProject.value ?: return null
+        val projDir = java.io.File(projectsRoot, proj)
+        val nativeLibPath = getApplication<Application>().applicationInfo.nativeLibraryDir
+        val gitBin = "$nativeLibPath/libgit.so"
+        val env = arrayOf(
+            "GIT_EXEC_PATH=$nativeLibPath",
+            "GIT_TEMPLATE_DIR=${getApplication<Application>().filesDir}/git_templates",
+            "GIT_CONFIG_NOSYSTEM=1",
+            "HOME=${getApplication<Application>().filesDir}",
+            "LD_LIBRARY_PATH=$nativeLibPath"
+        )
+        return try {
+            Runtime.getRuntime().exec(arrayOf(gitBin) + args, env, projDir)
+        } catch (e: Exception) {
+            Log.e("CodeOSS", "Git run failed: ${args.joinToString(" ")}", e)
+            null
+        }
+    }
 
     fun refreshGitStatus() {
-        val proj = _activeProject.value ?: return
-        val projDir = java.io.File(projectsRoot, proj)
-        if (!java.io.File(projDir, ".git").exists()) {
-            _gitChanges.value = emptyList()
-            _gitLog.value = emptyList()
-            _gitBranch.value = "Not a Git repo"
-            return
-        }
-
         viewModelScope.launch(Dispatchers.IO) {
+            val proj = _activeProject.value ?: return@launch
+            val projDir = java.io.File(projectsRoot, proj)
+            if (!java.io.File(projDir, ".git").exists()) {
+                _gitChanges.value = emptyList()
+                _gitLog.value = emptyList()
+                _gitBranch.value = "Not a Git repo"
+                return@launch
+            }
+
             try {
                 // Get branch
-                val branchProc = Runtime.getRuntime().exec(arrayOf("git", "rev-parse", "--abbrev-ref", "HEAD"), null, projDir)
-                val branch = branchProc.inputStream.bufferedReader().readText().trim()
+                val branchProc = runGit("rev-parse", "--abbrev-ref", "HEAD")
+                val branch = branchProc?.inputStream?.bufferedReader()?.readText()?.trim() ?: ""
                 _gitBranch.value = if (branch.isEmpty()) "Detached" else branch
 
                 // Get status
-                val statusProc = Runtime.getRuntime().exec(arrayOf("git", "status", "--porcelain"), null, projDir)
-                val statusLines = statusProc.inputStream.bufferedReader().readLines()
+                val statusProc = runGit("status", "--porcelain")
+                val statusLines = statusProc?.inputStream?.bufferedReader()?.readLines() ?: emptyList()
                 _gitChanges.value = statusLines.map { line ->
                     val stagedStatus = line.take(1)
                     val unstagedStatus = line.substring(1, 2)
                     val path = line.substring(3).trim()
-                    
                     val isStaged = stagedStatus != " " && stagedStatus != "?"
                     val status = if (isStaged) stagedStatus.trim() else unstagedStatus.trim()
-                    
                     GitChange(path, if (status.isEmpty()) stagedStatus.trim() else status, isStaged)
                 }
 
                 // Get branches
-                val branchesProc = Runtime.getRuntime().exec(arrayOf("git", "branch"), null, projDir)
-                val branches = branchesProc.inputStream.bufferedReader().readLines()
-                _gitBranches.value = branches.map { it.replace("*", "").trim() }
+                val branchesProc = runGit("branch", "-a")
+                val branches = branchesProc?.inputStream?.bufferedReader()?.readLines() ?: emptyList()
+                _gitBranches.value = branches.mapNotNull { line ->
+                    val clean = line.replace("*", "").trim()
+                    if (clean.contains("HEAD ->")) null else clean
+                }.filter { it.isNotEmpty() }.distinct()
 
                 // Get log
-                val logProc = Runtime.getRuntime().exec(arrayOf("git", "log", "--pretty=format:%h|%s|%an|%ar", "--max-count=30"), null, projDir)
-                val logLines = logProc.inputStream.bufferedReader().readLines()
+                val logProc = runGit("log", "--pretty=format:%h|%s|%an|%ar", "--max-count=30")
+                val logLines = logProc?.inputStream?.bufferedReader()?.readLines() ?: emptyList()
                 _gitLog.value = logLines.mapNotNull { line ->
                     val parts = line.split("|")
                     if (parts.size >= 4) GitCommit(parts[0], parts[1], parts[2], parts[3]) else null
                 }
+
+                // Get Remote URL
+                val remoteProc = runGit("remote", "get-url", "origin")
+                val remoteUrl = remoteProc?.inputStream?.bufferedReader()?.readText()?.trim() ?: ""
+                _gitRemoteUrl.value = if (remoteUrl.isEmpty()) "No Remote" else remoteUrl
             } catch (e: Exception) {
-                Log.e("CodeOSS", "Git status failed", e)
+                Log.e("CodeOSS", "Git refresh failed", e)
             }
         }
     }
 
     fun gitStage(path: String) {
-        val proj = _activeProject.value ?: return
-        val projDir = java.io.File(projectsRoot, proj)
         viewModelScope.launch(Dispatchers.IO) {
-            Runtime.getRuntime().exec(arrayOf("git", "add", path), null, projDir).waitFor()
+            runGit("add", path)?.waitFor()
             refreshGitStatus()
         }
     }
 
     fun gitUnstage(path: String) {
-        val proj = _activeProject.value ?: return
-        val projDir = java.io.File(projectsRoot, proj)
         viewModelScope.launch(Dispatchers.IO) {
-            Runtime.getRuntime().exec(arrayOf("git", "reset", "HEAD", "--", path), null, projDir).waitFor()
+            runGit("reset", "HEAD", "--", path)?.waitFor()
             refreshGitStatus()
         }
     }
 
     fun gitDiscard(path: String) {
-        val proj = _activeProject.value ?: return
-        val projDir = java.io.File(projectsRoot, proj)
         viewModelScope.launch(Dispatchers.IO) {
-            Runtime.getRuntime().exec(arrayOf("git", "checkout", "--", path), null, projDir).waitFor()
+            runGit("checkout", "--", path)?.waitFor()
             refreshGitStatus()
         }
     }
 
     fun gitCommit(message: String) {
-        val proj = _activeProject.value ?: return
-        val projDir = java.io.File(projectsRoot, proj)
         viewModelScope.launch(Dispatchers.IO) {
-            try {
-                _setupStatus.value = "Committing..."
-                Runtime.getRuntime().exec(arrayOf("git", "commit", "-m", message), null, projDir).waitFor()
-                refreshGitStatus()
-                _setupStatus.value = "Ready"
-            } catch (e: Exception) {
-                Log.e("CodeOSS", "Git commit failed", e)
-            }
+            _setupStatus.value = "Committing..."
+            runGit("commit", "-m", message)?.waitFor()
+            refreshGitStatus()
+            _setupStatus.value = "Ready"
         }
     }
 
     fun gitPush() {
-        val proj = _activeProject.value ?: return
-        val projDir = java.io.File(projectsRoot, proj)
         viewModelScope.launch(Dispatchers.IO) {
-            try {
-                _setupStatus.value = "Pushing to origin..."
-                Runtime.getRuntime().exec(arrayOf("git", "push"), null, projDir).waitFor()
-                refreshGitStatus()
-                _setupStatus.value = "Ready"
-            } catch (e: Exception) {
-                Log.e("CodeOSS", "Git push failed", e)
-            }
+            _setupStatus.value = "Pushing to origin..."
+            runGit("push")?.waitFor()
+            refreshGitStatus()
+            _setupStatus.value = "Ready"
         }
     }
 
     fun gitFetch() {
-        val proj = _activeProject.value ?: return
-        val projDir = java.io.File(projectsRoot, proj)
         viewModelScope.launch(Dispatchers.IO) {
-            try {
-                _setupStatus.value = "Fetching from remote..."
-                Runtime.getRuntime().exec(arrayOf("git", "fetch"), null, projDir).waitFor()
-                refreshGitStatus()
-                _setupStatus.value = "Ready"
-            } catch (e: Exception) {
-                Log.e("CodeOSS", "Git fetch failed", e)
-            }
+            _setupStatus.value = "Fetching from remote..."
+            runGit("fetch")?.waitFor()
+            refreshGitStatus()
+            _setupStatus.value = "Ready"
         }
     }
 
     fun gitPull() {
-        val proj = _activeProject.value ?: return
-        val projDir = java.io.File(projectsRoot, proj)
         viewModelScope.launch(Dispatchers.IO) {
-            try {
-                _setupStatus.value = "Pulling from origin..."
-                Runtime.getRuntime().exec(arrayOf("git", "pull"), null, projDir).waitFor()
-                refreshGitStatus()
-                refreshFileTree(projDir)
-                _setupStatus.value = "Ready"
-            } catch (e: Exception) {
-                Log.e("CodeOSS", "Git pull failed", e)
-            }
+            _setupStatus.value = "Pulling from origin..."
+            runGit("pull")?.waitFor()
+            refreshGitStatus()
+            _activeProject.value?.let { refreshFileTree(java.io.File(projectsRoot, it)) }
+            _setupStatus.value = "Ready"
         }
     }
 
     fun gitCheckout(branch: String) {
-        val proj = _activeProject.value ?: return
-        val projDir = java.io.File(projectsRoot, proj)
         viewModelScope.launch(Dispatchers.IO) {
-            try {
-                _setupStatus.value = "Checking out $branch..."
-                val proc = Runtime.getRuntime().exec(arrayOf("git", "checkout", branch), null, projDir)
-                val exitCode = proc.waitFor()
-                if (exitCode == 0) {
-                    refreshGitStatus()
-                    refreshFileTree(projDir)
-                } else {
-                    val error = proc.errorStream.bufferedReader().readText()
-                    withContext(Dispatchers.Main) {
-                        android.widget.Toast.makeText(getApplication(), "Checkout failed: $error", android.widget.Toast.LENGTH_LONG).show()
-                    }
+            _setupStatus.value = "Switching to $branch..."
+            
+            // 1. Attempt Auto-Stash (Save current work)
+            runGit("stash")?.waitFor()
+            
+            // 2. Perform Checkout
+            val proc = runGit("checkout", branch)
+            val exitCode = proc?.waitFor() ?: -1
+            
+            if (exitCode == 0) {
+                // 3. Re-apply work if switch was successful
+                runGit("stash", "pop")?.waitFor()
+                refreshGitStatus()
+                _activeProject.value?.let { refreshFileTree(java.io.File(projectsRoot, it)) }
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(getApplication(), "Switched to $branch", android.widget.Toast.LENGTH_SHORT).show()
                 }
-                _setupStatus.value = "Ready"
-            } catch (e: Exception) {
-                Log.e("CodeOSS", "Git checkout failed", e)
+            } else {
+                val error = proc?.errorStream?.bufferedReader()?.readText() ?: "Unknown error"
+                // Try to pop stash back if checkout failed to restore state
+                runGit("stash", "pop")?.waitFor()
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(getApplication(), "Checkout failed: $error", android.widget.Toast.LENGTH_LONG).show()
+                }
             }
+            _setupStatus.value = "Ready"
         }
     }
 
@@ -443,6 +455,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch(Dispatchers.IO) {
             _instances.value.forEach { it.pty.write("cd \"${projDir.absolutePath}\"\n") }
         }
+        refreshGitStatus()
     }
 
     fun openFile(file: java.io.File) {
@@ -488,6 +501,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         java.io.File(projectsRoot, trimmed).mkdirs()
         refreshProjects()
         openProject(trimmed)
+        refreshGitStatus()
     }
 
     fun deleteProject(name: String) {
@@ -627,6 +641,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val current = _activeProject.value
         if (current != null) {
             refreshFileTree(java.io.File(projectsRoot, current))
+            refreshGitStatus()
         }
         addNewTerminal()
         _isReady.value = true
