@@ -79,16 +79,68 @@ object ExtensionManager {
     suspend fun installExtension(context: Context, extension: Extension, onProgress: (Float) -> Unit): Boolean {
         return withContext(Dispatchers.IO) {
             try {
-                // In a real scenario, we'd use a specific ZIP for the extension folder.
-                // For now, we'll simulate the download/extract into the extensions folder.
-                val targetDir = File(context.filesDir, "extensions/${extension.id}")
+                val url = URL(extension.downloadUrl)
+                val connection = url.openConnection() as HttpURLConnection
+                connection.setRequestProperty("User-Agent", "CodeOSS-Android-App")
+                connection.connect()
+                
+                if (connection.responseCode != HttpURLConnection.HTTP_OK) return@withContext false
+                
+                val fileLength = connection.contentLength.toLong()
+                val tempZip = File(context.cacheDir, "ext_${extension.id}.zip")
+                val input = java.io.BufferedInputStream(connection.inputStream)
+                val output = java.io.FileOutputStream(tempZip)
+                
+                val data = ByteArray(8192)
+                var total: Long = 0
+                var count: Int
+                while (input.read(data).also { count = it } != -1) {
+                    total += count
+                    if (fileLength > 0) onProgress(total.toFloat() / fileLength)
+                    output.write(data, 0, count)
+                }
+                output.close()
+                input.close()
+                
+                // Extract only the extension folder
+                val extensionsDir = File(context.filesDir, "extensions")
+                extensionsDir.mkdirs()
+                val targetDir = File(extensionsDir, extension.id)
                 targetDir.mkdirs()
                 
-                // Placeholder download logic - in production this would be the actual extension ZIP
-                // For this demo, we'll just create the directory to show it's "installed"
+                // Use a modified unzip that looks for the specific path in the ZIP
+                unzipExtension(tempZip, targetDir, "marketplace/${extension.id}")
+                
+                tempZip.delete()
                 true
             } catch (e: Exception) {
+                Log.e(TAG, "Installation failed", e)
                 false
+            }
+        }
+    }
+
+    private fun unzipExtension(zipFile: File, targetDir: File, internalPath: String) {
+        java.util.zip.ZipInputStream(java.io.FileInputStream(zipFile)).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                // GitHub ZIPs usually have a root folder like 'repo-main/'
+                val name = entry.name
+                val pathAfterRoot = name.substringAfter('/')
+                
+                if (pathAfterRoot.startsWith(internalPath)) {
+                    val relativeName = pathAfterRoot.removePrefix(internalPath).removePrefix("/")
+                    if (relativeName.isNotEmpty()) {
+                        val newFile = File(targetDir, relativeName)
+                        if (entry.isDirectory) {
+                            newFile.mkdirs()
+                        } else {
+                            newFile.parentFile?.mkdirs()
+                            newFile.outputStream().use { zis.copyTo(it) }
+                        }
+                    }
+                }
+                entry = zis.nextEntry
             }
         }
     }
