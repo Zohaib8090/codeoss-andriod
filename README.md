@@ -167,21 +167,15 @@ CodeOSS Android
 
 ---
 
-## Contributing
+## Found a Bug?
 
-Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting a PR.
-
-**Areas where help is most needed:**
-- Testing on different Android devices and reporting bugs
-- Rust experience for SWC Android arm64 compilation
-- UI improvements in Jetpack Compose
-- Documentation
+[Open an issue](https://github.com/Zohaib8090/codeoss-android/issues) on GitHub.
 
 ---
 
 ## For Developers — Building from Source
 
-> This section is only for developers who want to modify or contribute to CodeOSS Android. Regular users just need the APK above.
+> This section is only for developers who want to modify or build CodeOSS Android. Regular users just need the APK above.
 
 **Prerequisites:**
 - Android Studio Hedgehog or newer
