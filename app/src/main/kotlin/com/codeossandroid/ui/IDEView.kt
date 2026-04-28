@@ -49,6 +49,7 @@ fun IDEView(viewModel: TerminalViewModel) {
     val sidebarOpen by viewModel.sidebarOpen.collectAsState()
     val sidebarMode by viewModel.sidebarMode.collectAsState()
     val activeProject by viewModel.activeProject.collectAsState()
+    var fullScreenImage by remember { mutableStateOf<String?>(null) }
 
     Box(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
         Row(modifier = Modifier.fillMaxSize()) {
@@ -69,8 +70,12 @@ fun IDEView(viewModel: TerminalViewModel) {
                         )
                     }
                     val activeExtensionDetail by viewModel.activeExtensionDetail.collectAsState()
+                    val activeGithubExtensionDetail by viewModel.activeGithubExtensionDetail.collectAsState()
+                    
                     Box(modifier = Modifier.fillMaxWidth().weight(1f).background(Color(0xFF0D1117))) {
-                        if (activeExtensionDetail != null) {
+                        if (activeGithubExtensionDetail != null) {
+                            GithubExtensionDetailView(activeGithubExtensionDetail!!, viewModel, onImageClick = { fullScreenImage = it })
+                        } else if (activeExtensionDetail != null) {
                             ExtensionDetailView(activeExtensionDetail!!, viewModel)
                         } else if (sidebarMode == TerminalViewModel.SidebarMode.BROWSER) {
                             BrowserView(viewModel)
@@ -128,6 +133,26 @@ fun IDEView(viewModel: TerminalViewModel) {
         val availableUpdate by viewModel.availableUpdate.collectAsState()
         if (availableUpdate != null) {
             UpdateDialog(availableUpdate!!, onDismiss = { viewModel.dismissUpdate() })
+        }
+        
+        if (fullScreenImage != null) {
+            Box(
+                modifier = Modifier.fillMaxSize().background(Color.Black).clickable { fullScreenImage = null },
+                contentAlignment = Alignment.Center
+            ) {
+                coil.compose.AsyncImage(
+                    model = fullScreenImage,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize().padding(16.dp),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                )
+                IconButton(
+                    onClick = { fullScreenImage = null },
+                    modifier = Modifier.align(Alignment.TopEnd).padding(16.dp).statusBarsPadding()
+                ) {
+                    Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(32.dp))
+                }
+            }
         }
     }
 }
@@ -1002,6 +1027,10 @@ fun MarketplaceContent(viewModel: TerminalViewModel) {
             Spacer(Modifier.weight(1f))
             if (isScanning) {
                 CircularProgressIndicator(modifier = Modifier.size((12 * uiScale).dp), color = Color(0xFF58A6FF), strokeWidth = 2.dp)
+            } else {
+                IconButton(onClick = { viewModel.scanMarketplace() }, modifier = Modifier.size((24 * uiScale).dp)) {
+                    Icon(Icons.Default.Refresh, null, tint = Color.Gray, modifier = Modifier.size((16 * uiScale).dp))
+                }
             }
         }
 
@@ -1017,7 +1046,7 @@ fun MarketplaceContent(viewModel: TerminalViewModel) {
             } else {
                 extensions.forEach { ext ->
                     ExtensionItem(ext, uiScale) {
-                        viewModel.installExtension(ext)
+                        viewModel.selectGithubExtension(ext)
                     }
                 }
             }
@@ -1206,5 +1235,136 @@ fun BinaryInfoRow(name: String, version: String, icon: androidx.compose.ui.graph
         Spacer(Modifier.width(8.dp))
         Text(name, color = Color.White, fontSize = (12 * uiScale).sp, modifier = Modifier.weight(1f))
         Text(version, color = Color(0xFF58A6FF), fontSize = (11 * uiScale).sp, fontFamily = FontFamily.Monospace)
+    }
+}
+
+@Composable
+fun GithubExtensionDetailView(
+    extension: com.codeossandroid.bridge.Extension, 
+    viewModel: TerminalViewModel,
+    onImageClick: (String) -> Unit
+) {
+    val uiScale by viewModel.uiScale.collectAsState()
+    var selectedVersion by remember { mutableStateOf(extension.versions.firstOrNull() ?: "Latest") }
+    var showVersionPicker by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxSize().background(Color(0xFF0D1117)).padding(24.dp).verticalScroll(rememberScrollState())) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { viewModel.selectGithubExtension(null) }) {
+                Icon(Icons.Default.ArrowBack, null, tint = Color.Gray)
+            }
+            Spacer(Modifier.width(8.dp))
+            Text("Extension Details", color = Color.Gray, fontSize = (12 * uiScale).sp)
+        }
+        
+        Spacer(Modifier.height(24.dp))
+        
+        Row(verticalAlignment = Alignment.Top) {
+            Box(
+                modifier = Modifier
+                    .size((96 * uiScale).dp)
+                    .background(Color(0xFF161B22), androidx.compose.foundation.shape.RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (extension.iconUrl != null) {
+                    coil.compose.AsyncImage(model = extension.iconUrl, contentDescription = null, modifier = Modifier.fillMaxSize().padding(16.dp))
+                } else {
+                    Icon(Icons.Default.Extension, null, tint = Color.Gray, modifier = Modifier.size((48 * uiScale).dp))
+                }
+            }
+            
+            Spacer(Modifier.width((24 * uiScale).dp))
+            
+            Column(modifier = Modifier.weight(1f)) {
+                Text(extension.name, color = Color.White, fontSize = (24 * uiScale).sp, fontWeight = FontWeight.Bold)
+                Text("by ${extension.author}", color = Color(0xFF58A6FF), fontSize = (14 * uiScale).sp)
+                Spacer(Modifier.height(8.dp))
+                Text(extension.description, color = Color.Gray, fontSize = (13 * uiScale).sp)
+                
+                Spacer(Modifier.height(24.dp))
+                
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Button(
+                        onClick = { viewModel.installGithubExtension(extension, selectedVersion) },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF238636)),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+                        modifier = Modifier.height((36 * uiScale).dp)
+                    ) {
+                        val isInstalled = extension.isInstalled
+                        Text(if (isInstalled) "Update / Reinstall" else "Install", fontWeight = FontWeight.Bold)
+                    }
+                    
+                    Spacer(Modifier.width(12.dp))
+                    
+                    // Version Selector
+                    Box {
+                        OutlinedButton(
+                            onClick = { showVersionPicker = true },
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+                            modifier = Modifier.height((36 * uiScale).dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF30363D))
+                        ) {
+                            Text(selectedVersion, fontSize = (12 * uiScale).sp)
+                            Icon(Icons.Default.ArrowDropDown, null, modifier = Modifier.size((16 * uiScale).dp))
+                        }
+                        
+                        DropdownMenu(
+                            expanded = showVersionPicker,
+                            onDismissRequest = { showVersionPicker = false },
+                            modifier = Modifier.background(Color(0xFF161B22)).border(1.dp, Color(0xFF30363D))
+                        ) {
+                            val versions = if (extension.versions.isEmpty()) listOf("Latest") else extension.versions
+                            versions.forEach { version ->
+                                DropdownMenuItem(
+                                    text = { Text(version, color = Color.White) },
+                                    onClick = {
+                                        selectedVersion = version
+                                        showVersionPicker = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (extension.screenshots.isNotEmpty()) {
+            Spacer(Modifier.height(32.dp))
+            Text("Screenshots", color = Color.White, fontSize = (16 * uiScale).sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(16.dp))
+            Row(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                extension.screenshots.forEach { screenshot ->
+                    Box(
+                        modifier = Modifier
+                            .width((240 * uiScale).dp)
+                            .height((135 * uiScale).dp)
+                            .padding(end = 12.dp)
+                            .background(Color(0xFF161B22), androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                            .clickable { onImageClick(screenshot) }
+                            .border(1.dp, Color(0xFF30363D), androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                    ) {
+                        coil.compose.AsyncImage(
+                            model = screenshot,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(48.dp))
+        HorizontalDivider(color = Color(0xFF30363D))
+        Spacer(Modifier.height(24.dp))
+        
+        Text("Information", color = Color.White, fontSize = (16 * uiScale).sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(16.dp))
+        
+        InfoRowItem("Version", extension.version, uiScale)
+        InfoRowItem("Identifier", extension.id, uiScale)
+        InfoRowItem("Repository", "GitHub", uiScale)
     }
 }

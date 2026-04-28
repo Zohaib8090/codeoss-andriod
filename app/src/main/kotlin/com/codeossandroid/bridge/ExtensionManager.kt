@@ -18,7 +18,9 @@ data class Extension(
     val author: String,
     val iconUrl: String?,
     val downloadUrl: String,
-    val isInstalled: Boolean = false
+    val isInstalled: Boolean = false,
+    val versions: List<String> = emptyList(),
+    val screenshots: List<String> = emptyList()
 )
 
 object ExtensionManager {
@@ -45,6 +47,15 @@ object ExtensionManager {
                     if (metadata != null) {
                         val id = metadata.getString("id")
                         val installedDir = File(context.filesDir, "extensions/$id")
+                        val versionsList = fetchVersions(name)
+                        val screenshotsArray = metadata.optJSONArray("screenshots")
+                        val screenshots = mutableListOf<String>()
+                        if (screenshotsArray != null) {
+                            for (i in 0 until screenshotsArray.length()) {
+                                screenshots.add(screenshotsArray.getString(i))
+                            }
+                        }
+
                         extensions.add(Extension(
                             id = id,
                             name = metadata.getString("name"),
@@ -52,8 +63,10 @@ object ExtensionManager {
                             version = metadata.optString("version", "1.0.0"),
                             author = metadata.optString("author", "Unknown"),
                             iconUrl = metadata.optString("icon", null),
-                            downloadUrl = "https://github.com/$GITHUB_REPO/archive/refs/heads/main.zip", // Temporary: Should point to subfolder ZIP or specific release
-                            isInstalled = installedDir.exists()
+                            downloadUrl = "https://github.com/$GITHUB_REPO/archive/refs/heads/main.zip",
+                            isInstalled = installedDir.exists(),
+                            versions = versionsList,
+                            screenshots = screenshots
                         ))
                     }
                 }
@@ -76,10 +89,17 @@ object ExtensionManager {
         }
     }
 
-    suspend fun installExtension(context: Context, extension: Extension, onProgress: (Float) -> Unit): Boolean {
+    suspend fun installExtension(context: Context, extension: Extension, version: String? = null, onProgress: (Float) -> Unit): Boolean {
         return withContext(Dispatchers.IO) {
             try {
-                val url = URL(extension.downloadUrl)
+                // If version is provided and different from "main", we might want to download a specific tag
+                val downloadUrl = if (version != null && version != "Latest") {
+                    "https://github.com/$GITHUB_REPO/archive/refs/tags/$version.zip"
+                } else {
+                    extension.downloadUrl
+                }
+
+                val url = URL(downloadUrl)
                 val connection = url.openConnection() as HttpURLConnection
                 connection.setRequestProperty("User-Agent", "CodeOSS-Android-App")
                 connection.connect()
@@ -102,13 +122,9 @@ object ExtensionManager {
                 output.close()
                 input.close()
                 
-                // Extract only the extension folder
-                val extensionsDir = File(context.filesDir, "extensions")
-                extensionsDir.mkdirs()
-                val targetDir = File(extensionsDir, extension.id)
+                val targetDir = File(context.filesDir, "extensions/${extension.id}")
                 targetDir.mkdirs()
                 
-                // Use a modified unzip that looks for the specific path in the ZIP
                 unzipExtension(tempZip, targetDir, "marketplace/${extension.id}")
                 
                 tempZip.delete()
@@ -117,6 +133,26 @@ object ExtensionManager {
                 Log.e(TAG, "Installation failed", e)
                 false
             }
+        }
+    }
+
+    private suspend fun fetchVersions(dirName: String): List<String> {
+        return try {
+            val url = URL("https://raw.githubusercontent.com/$GITHUB_REPO/main/$MARKETPLACE_PATH/$dirName/versions.json")
+            val connection = url.openConnection() as HttpURLConnection
+            connection.setRequestProperty("User-Agent", "CodeOSS-Android-App")
+            if (connection.responseCode != 200) return listOf("Latest")
+            
+            val response = connection.inputStream.bufferedReader().use { it.readText() }
+            val json = JSONObject(response)
+            val array = json.getJSONArray("versions")
+            val list = mutableListOf<String>()
+            for (i in 0 until array.length()) {
+                list.add(array.getString(i))
+            }
+            list
+        } catch (e: Exception) {
+            listOf("Latest")
         }
     }
 
