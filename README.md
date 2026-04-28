@@ -37,22 +37,61 @@ Clone a repo, install npm packages, and run a dev server — all from your phone
 
 ## Features
 
-- **Real Terminal** — Full PTY-based terminal with ANSI color support
-- **Git over HTTPS** — Clone, commit, push, pull via libgit2 (no binary execution)
+### Editor
+- **Multi-file Tabs** — Open multiple files simultaneously with unsaved change indicators
+- **Split Screen** — View and edit files side by side horizontally or vertically
+- **Syntax Highlighting** — Color highlighting for Kotlin, JavaScript, TypeScript, HTML, CSS, Markdown and more
+- **Smart Keyboard** — Extra keys row (ESC, TAB, arrows, CTRL) that sits above the soft keyboard
+
+### Terminal
+- **Real Terminal** — Full PTY-based terminal powered by the termux-terminal-emulator library
+- **Multiple Sessions** — Run multiple terminal sessions simultaneously with tab switching
+- **ANSI Support** — Full color and cursor control support
+- **TUI Support** — Interactive CLI tools render correctly
+
+### Git & Source Control
+- **Git over HTTPS** — Clone, commit, push, pull via libgit2 JNI bridge (no binary execution)
 - **GitHub OAuth** — Sign in with GitHub — no manual config needed
+- **Source Control UI** — Visual git panel with commit, push, pull, branch switching, changes list and timeline
+- **One-click Clone** — Browse your GitHub repos and clone with a single tap
+
+### Runtime
 - **Node.js Runtime** — Full Node.js running on-device
 - **npm Support** — Install packages and run scripts natively
-- **Vite + React** — Run modern React projects on your phone
+- **Auto Binary Updates** — Node.js and Git binaries update automatically via GitHub releases
+
+### Browser & DevTools
 - **Built-in Browser** — Open your dev server directly inside the IDE
-- **Port Forwarding** — Expose localhost to the internet with one tap
-- **File Manager** — Built-in sidebar with file management
-- **Multi-file Tabs** — Open multiple files simultaneously
-- **Split Screen** — View and edit files side by side
-- **Source Control UI** — Visual git panel with commit, push, pull, branch switching
-- **Debug Console** — Variables, Watch, Call Stack, Breakpoints
-- **Live Logcat** — Real-time system log viewer
-- **Extension Marketplace** — Browse VS Code extensions (Open VSX)
-- **Auto Update** — Get notified when a new version is available
+- **Auto Detection** — Automatically detects running dev servers and offers to open them
+- **DevTools Console** — Browser console showing logs from your web app
+- **Desktop Mode** — Switch between mobile and desktop user agent
+- **Camera/Mic/File** — Full permission support for testing web apps
+- **Zoom Support** — Pinch to zoom and text size controls
+
+### Port Forwarding
+- **One-tap Tunnels** — Expose localhost to the internet instantly via bore.pub
+- **Auto Detection** — Automatically detects active dev server ports
+- **Open Anywhere** — Open tunneled URLs in internal or external browser
+
+### Debugging
+- **Debug Console** — Variables, Watch, Call Stack, Breakpoints panel
+- **Live Logcat** — Real-time system log viewer with filtering and color coding
+- **Problems Panel** — Automatically parses build errors with file and line info
+- **Output Panel** — Dedicated output view for running tasks
+
+### Marketplace & Extensions
+- **Extension Marketplace** — Browse and search VS Code extensions via Open VSX
+- **Extension Details** — Full description, publisher info and version for each extension
+
+### Project Management
+- **File Manager** — Full file explorer with create, rename, delete, copy, paste, cut
+- **Project Import/Export** — Import and export projects as ZIP files
+- **File Upload/Download** — Upload files from device storage into projects
+
+### Updates & Settings
+- **Auto Update Notifications** — Get notified when a new app version is available
+- **Configurable Font Size** — Adjust editor and terminal font size
+- **Configurable UI Scale** — Adjust icon and UI element sizes
 - **Zero Termux Dependency** — Completely standalone APK
 - **Android 15 Compatible** — Works with Android's W^X security policy
 
@@ -62,7 +101,7 @@ Clone a repo, install npm packages, and run a dev server — all from your phone
 
 | Framework | Status | Notes |
 |-----------|--------|-------|
-| React + Vite | ✅ Working | Use `@vitejs/plugin-react` not swc |
+| React + Vite | ✅ Working | Use `@vitejs/plugin-react` (not swc) |
 | Express / Node.js | ✅ Working | Full support |
 | Vue + Vite | ✅ Working | Pure JS build |
 | Svelte + Vite | ✅ Working | Pure JS build |
@@ -79,6 +118,8 @@ CodeOSS Android
 │   ├── PTY Bridge (forkpty → real terminal)
 │   ├── Git Bridge (libgit2 → HTTPS clone/push/pull)
 │   └── DNS Override (Google DNS for Node.js)
+├── Terminal Engine (termux-terminal-emulator)
+│   └── Full VT100/xterm emulation
 ├── Bundled Binaries (jniLibs/arm64-v8a)
 │   ├── libnode.so (Node.js runtime)
 │   ├── libgit2.so (Git operations)
@@ -97,6 +138,7 @@ CodeOSS Android
 | Next.js not supported | No SWC binary for Android arm64 | [Reported to Next.js](https://github.com/vercel/next.js/discussions/93267) |
 | Use `@vitejs/plugin-react` not swc | Same SWC issue | Workaround available |
 | No iOS support | Platform limitation | Not planned |
+| x86 devices not supported | All binaries are arm64-v8a | Not planned |
 
 ---
 
@@ -107,12 +149,17 @@ CodeOSS Android
 - [x] GitHub OAuth login
 - [x] npm install
 - [x] Vite + React support
-- [x] Built-in browser
-- [x] Port forwarding
+- [x] Built-in browser with DevTools
+- [x] Port forwarding (bore.pub)
 - [x] Multi-file tabs + split screen
 - [x] Source control UI
 - [x] Debug console + Logcat
 - [x] Extension marketplace UI
+- [x] Auto update notifications
+- [x] Node/Git binary update system
+- [x] Termux terminal emulator integration
+- [x] Syntax highlighting
+- [x] Smart keyboard row
 - [ ] LSP autocomplete (downloadable language packs)
 - [ ] AI assistant (bring your own API key)
 - [ ] Android app development support
@@ -162,8 +209,10 @@ MIT License — see [LICENSE](LICENSE) for details.
 ## Acknowledgements
 
 - [libgit2](https://libgit2.org/) — Git operations
-- [Termux](https://termux.dev/) — Binary sources
+- [Termux](https://termux.dev/) — Binary sources and terminal emulator library
 - [Node.js](https://nodejs.org/) — JavaScript runtime
+- [bore](https://github.com/ekzhang/bore) — Port forwarding
+- [Open VSX](https://open-vsx.org/) — Extension marketplace
 
 ---
 
