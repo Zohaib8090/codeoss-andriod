@@ -50,7 +50,7 @@ fun IDEView(viewModel: TerminalViewModel) {
     val sidebarMode by viewModel.sidebarMode.collectAsState()
     val activeProject by viewModel.activeProject.collectAsState()
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
         Row(modifier = Modifier.fillMaxSize()) {
             ActivityBar(viewModel)
             BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxHeight()) {
@@ -188,11 +188,13 @@ fun ProjectSidebar(viewModel: TerminalViewModel) {
             TerminalViewModel.SidebarMode.GIT -> SourceControlContent(viewModel)
             TerminalViewModel.SidebarMode.SEARCH -> SearchContent(viewModel)
             TerminalViewModel.SidebarMode.EXTENSIONS -> ExtensionsContent(viewModel)
-            TerminalViewModel.SidebarMode.MARKETPLACE -> Text("Marketplace Coming Soon", color = Color.Gray, modifier = Modifier.padding(16.dp))
+            TerminalViewModel.SidebarMode.MARKETPLACE -> MarketplaceContent(viewModel)
             TerminalViewModel.SidebarMode.DEBUG -> DebugContent(viewModel)
             TerminalViewModel.SidebarMode.BROWSER -> Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                 Text("Web Preview Tools\n\nDebugger Bridge Active", color = Color.Gray, fontSize = (11 * uiScale).sp, fontFamily = FontFamily.Monospace)
             }
+            TerminalViewModel.SidebarMode.SETTINGS -> SettingsContent(viewModel)
+
         }
     }
 }
@@ -960,12 +962,249 @@ fun PortsTabContent(viewModel: TerminalViewModel) {
                                 }
                             )
                         }
-                        IconButton(onClick = { viewModel.stopTunnel(tunnel.port) }) {
-                            Icon(Icons.Default.StopCircle, "Stop Tunnel", tint = Color(0xFFF85149))
+                        Row {
+                            IconButton(onClick = { viewModel.openInBrowser(tunnel.url) }) {
+                                Icon(Icons.Default.OpenInNew, "Open in Internal Browser", tint = Color(0xFF58A6FF), modifier = Modifier.size((18 * uiScale).dp))
+                            }
+                            IconButton(onClick = { viewModel.openExternalBrowser(tunnel.url) }) {
+                                Icon(Icons.Default.Launch, "Open External", tint = Color.Gray, modifier = Modifier.size((18 * uiScale).dp))
+                            }
+                            IconButton(onClick = { viewModel.stopTunnel(tunnel.port) }) {
+                                Icon(Icons.Default.StopCircle, "Stop Tunnel", tint = Color(0xFFF85149), modifier = Modifier.size((18 * uiScale).dp))
+                            }
+                        }
+
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun MarketplaceContent(viewModel: TerminalViewModel) {
+    val uiScale by viewModel.uiScale.collectAsState()
+    val status by viewModel.binaryUpdateStatus.collectAsState()
+    val progress by viewModel.binaryUpdateProgress.collectAsState()
+    val progressInfo by viewModel.binaryUpdateProgressInfo.collectAsState()
+    val isUpdating by viewModel.isUpdatingBinaries.collectAsState()
+    val nodeVersion by viewModel.nodeVersion.collectAsState()
+    val gitVersion by viewModel.gitVersion.collectAsState()
+    val extensions by viewModel.availableExtensions.collectAsState()
+    val isScanning by viewModel.isScanningMarketplace.collectAsState()
+
+    Column(modifier = Modifier.fillMaxSize().background(Color(0xFF0D1117))) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("MARKETPLACE", color = Color.White.copy(alpha = 0.7f), fontSize = (12 * uiScale).sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp)
+            Spacer(Modifier.weight(1f))
+            if (isScanning) {
+                CircularProgressIndicator(modifier = Modifier.size((12 * uiScale).dp), color = Color(0xFF58A6FF), strokeWidth = 2.dp)
+            }
+        }
+
+        Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            // Extensions Section
+            if (extensions.isEmpty() && !isScanning) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("No extensions found in /marketplace folder", color = Color.Gray, fontSize = (12 * uiScale).sp)
+                }
+            } else {
+                extensions.forEach { ext ->
+                    ExtensionItem(ext, uiScale) {
+                        viewModel.installExtension(ext)
+                    }
+                }
+            }
+
+            HorizontalDivider(color = Color(0xFF30363D), modifier = Modifier.padding(vertical = 8.dp))
+
+            // System Runtimes Section
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("SYSTEM RUNTIMES", color = Color.White.copy(alpha = 0.5f), fontSize = (11 * uiScale).sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(16.dp))
+                
+                BinaryInfoRow("Node.js Runtime", nodeVersion, Icons.Default.Code, uiScale)
+                BinaryInfoRow("Git SCM", gitVersion, Icons.Default.AccountTree, uiScale)
+                
+                Spacer(Modifier.height(24.dp))
+                
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF161B22), androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+                        .padding(16.dp)
+                ) {
+                    Text("Binary Update Service", color = Color.White, fontSize = (13 * uiScale).sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(4.dp))
+                    Text(status, color = if (status.contains("Error")) Color(0xFFF85149) else Color(0xFF58A6FF), fontSize = (11 * uiScale).sp, fontFamily = FontFamily.Monospace)
+                    
+                    if (isUpdating || progressInfo.isNotEmpty()) {
+                        Spacer(Modifier.height(12.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(progressInfo, color = Color.Gray, fontSize = (10 * uiScale).sp, modifier = Modifier.weight(1f))
+                            if (isUpdating) {
+                                Text("${(progress * 100).toInt()}%", color = Color(0xFF58A6FF), fontSize = (10 * uiScale).sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.fillMaxWidth().height(4.dp),
+                            color = Color(0xFF58A6FF),
+                            trackColor = Color(0xFF30363D)
+                        )
+                    }
+                    
+                    Spacer(Modifier.height(16.dp))
+                    
+                    Row {
+                        Button(
+                            onClick = { viewModel.checkBinaryUpdates() },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF21262D)),
+                            enabled = !isUpdating,
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text("Check", fontSize = (10 * uiScale).sp)
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Button(
+                            onClick = { viewModel.applyBinaryUpdate() },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF238636)),
+                            enabled = !isUpdating,
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text("Update", fontSize = (10 * uiScale).sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+fun ExtensionItem(extension: com.codeossandroid.bridge.Extension, uiScale: Float, onInstall: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .background(Color(0xFF161B22), androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size((40 * uiScale).dp)
+                .background(Color(0xFF0D1117), androidx.compose.foundation.shape.RoundedCornerShape(4.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            if (extension.iconUrl != null) {
+                coil.compose.AsyncImage(
+                    model = extension.iconUrl,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                Icon(Icons.Default.Extension, null, tint = Color.Gray, modifier = Modifier.size((20 * uiScale).dp))
+            }
+        }
+        
+        Spacer(Modifier.width(12.dp))
+        
+        Column(modifier = Modifier.weight(1f)) {
+            Text(extension.name, color = Color.White, fontSize = (13 * uiScale).sp, fontWeight = FontWeight.Bold)
+            Text(extension.description, color = Color.Gray, fontSize = (10 * uiScale).sp, maxLines = 1)
+            Text("By ${extension.author}", color = Color(0xFF58A6FF).copy(alpha = 0.7f), fontSize = (9 * uiScale).sp)
+        }
+        
+        Spacer(Modifier.width(8.dp))
+        
+        Button(
+            onClick = onInstall,
+            enabled = !extension.isInstalled,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (extension.isInstalled) Color.Transparent else Color(0xFF238636),
+                contentColor = if (extension.isInstalled) Color(0xFF3FB950) else Color.White
+            ),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+            modifier = Modifier.height((28 * uiScale).dp)
+        ) {
+            Text(if (extension.isInstalled) "Installed" else "Install", fontSize = (10 * uiScale).sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+fun SettingsContent(viewModel: TerminalViewModel) {
+    val uiScale by viewModel.uiScale.collectAsState()
+    val fontSize by viewModel.fontSize.collectAsState()
+
+    Column(modifier = Modifier.fillMaxSize().background(Color(0xFF0D1117))) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("IDE SETTINGS", color = Color.White.copy(alpha = 0.7f), fontSize = (12 * uiScale).sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp)
+        }
+
+        Column(modifier = Modifier.weight(1f).padding(16.dp).verticalScroll(rememberScrollState())) {
+            Text("Appearance", color = Color.White, fontSize = (14 * uiScale).sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(16.dp))
+            
+            SettingRowItem("Terminal Font Size", fontSize.toString(), uiScale, onMinus = { viewModel.updateFontSize(-1) }, onPlus = { viewModel.updateFontSize(1) })
+            val scalePercent = (uiScale * 100).toInt()
+            SettingRowItem("Global UI Scale", "$scalePercent%", uiScale, onMinus = { viewModel.updateUIScale(-0.05f) }, onPlus = { viewModel.updateUIScale(0.05f) })
+            
+            Spacer(Modifier.height(32.dp))
+            Text("Environment Info", color = Color.White, fontSize = (14 * uiScale).sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(12.dp))
+            InfoRowItem("Architecture", android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown", uiScale)
+            InfoRowItem("Android Version", android.os.Build.VERSION.RELEASE, uiScale)
+            InfoRowItem("Device", android.os.Build.MODEL, uiScale)
+        }
+    }
+}
+
+@Composable
+fun SettingRowItem(label: String, value: String, uiScale: Float, onMinus: () -> Unit, onPlus: () -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = Color.White, modifier = Modifier.weight(1f), fontSize = (12 * uiScale).sp)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onMinus, modifier = Modifier.size((24 * uiScale).dp)) { Icon(Icons.Default.Remove, null, tint = Color.Gray, modifier = Modifier.size((16 * uiScale).dp)) }
+            Text(value, color = Color(0xFF58A6FF), fontSize = (12 * uiScale).sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp))
+            IconButton(onClick = onPlus, modifier = Modifier.size((24 * uiScale).dp)) { Icon(Icons.Default.Add, null, tint = Color.Gray, modifier = Modifier.size((16 * uiScale).dp)) }
+        }
+    }
+}
+
+@Composable
+fun InfoRowItem(label: String, value: String, uiScale: Float) {
+    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Text(label, color = Color.Gray, fontSize = (11 * uiScale).sp, modifier = Modifier.weight(1f))
+        Text(value, color = Color.White, fontSize = (11 * uiScale).sp, fontFamily = FontFamily.Monospace)
+    }
+}
+
+@Composable
+fun BinaryInfoRow(name: String, version: String, icon: androidx.compose.ui.graphics.vector.ImageVector, uiScale: Float) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, null, tint = Color.Gray, modifier = Modifier.size((16 * uiScale).dp))
+        Spacer(Modifier.width(8.dp))
+        Text(name, color = Color.White, fontSize = (12 * uiScale).sp, modifier = Modifier.weight(1f))
+        Text(version, color = Color(0xFF58A6FF), fontSize = (11 * uiScale).sp, fontFamily = FontFamily.Monospace)
     }
 }

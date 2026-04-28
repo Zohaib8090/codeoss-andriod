@@ -187,6 +187,12 @@ class PtyBridge {
                   if (typeof options === 'number') { options = { family: options }; }
                   const family = (options && options.family) || 0;
                   const all = (options && options.all) || false;
+                  
+                  if (hostname === 'localhost') {
+                    const res = all ? [{address: '127.0.0.1', family: 4}] : '127.0.0.1';
+                    return process.nextTick(() => callback(null, res, 4));
+                  }
+                  
                   if (net.isIP(hostname)) {
                     const ipFamily = net.isIPv4(hostname) ? 4 : 6;
                     const res = all ? [{address: hostname, family: ipFamily}] : hostname;
@@ -224,9 +230,17 @@ class PtyBridge {
             export GIT_CONFIG_NOSYSTEM=1
             export GIT_CONFIG_GLOBAL="$usrEtcDir/gitconfig"
             export GIT_EXEC_PATH="$nativeLibPath"
-            # export NODE_OPTIONS="--require $usrEtcDir/dns-override.js"
-            # export ARES_SERVERS="8.8.8.8,8.8.4.4,1.1.1.1"
             export NATIVE_LIB_PATH="$nativeLibPath"
+            
+            # Universal Android Fixes (Restored from history)
+            export OPENSSL_CONF="/dev/null"
+            export RESOLV_CONF="$usrEtcDir/resolv.conf"
+            
+            # Vite & Node Stability + Universal DNS Monkey-Patch
+            export CHOKIDAR_USEPOLLING=1
+            export WATCHPACK_POLLING=true
+            export NODE_OPTIONS="--require $usrEtcDir/dns-override.js --preserve-symlinks --preserve-symlinks-main"
+            export NODE_PATH=".:${'$'}PWD/node_modules:$usrDir/lib/node_modules"
             
             # Use symlinks instead of functions where possible for better sub-process support
             ln -sf "$nativeLibPath/libnode.so" "$usrBinDir/node"
@@ -336,6 +350,10 @@ class PtyBridge {
             
             alias clear="printf '\033[2J\033[H'"
             alias ll='ls -al'
+            
+            cd() { 
+                builtin cd "$@" && export NODE_PATH=".:${'$'}PWD/node_modules:$usrDir/lib/node_modules"
+            }
             
             # Force Next.js to use WASM instead of native SWC
             export NEXT_SWC_LOAD_WASM=1

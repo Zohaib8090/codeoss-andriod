@@ -16,7 +16,6 @@ import com.codeossandroid.viewmodel.TerminalViewModel
 
 @Composable
 fun ActivityBar(viewModel: TerminalViewModel) {
-    var showSettings by remember { mutableStateOf(false) }
     val fontSize by viewModel.fontSize.collectAsState()
     val uiScale by viewModel.uiScale.collectAsState()
     val isPanelVisible by viewModel.isPanelVisible.collectAsState()
@@ -80,26 +79,9 @@ fun ActivityBar(viewModel: TerminalViewModel) {
 
         Spacer(Modifier.weight(1f))
         
-        Box {
-            IconButton(onClick = { showSettings = true }, modifier = Modifier.size(barWidth)) { 
-                Icon(Icons.Default.Settings, null, tint = Color.Gray, modifier = Modifier.size(iconSize)) 
-            }
-            DropdownMenu(expanded = showSettings, onDismissRequest = { showSettings = false }, modifier = Modifier.background(Color(0xFF161B22)).width(220.dp)) {
-                Text("Settings", modifier = Modifier.padding(12.dp), color = Color.White, fontWeight = FontWeight.Bold, fontSize = (14 * uiScale).sp)
-                HorizontalDivider(color = Color.Gray)
-                SettingRow("Font Size", fontSize.toString(), uiScale, onMinus = { viewModel.updateFontSize(-1) }, onPlus = { viewModel.updateFontSize(1) })
-                val scalePercent = (uiScale * 100).toInt()
-                SettingRow("UI Size", "$scalePercent%", uiScale, onMinus = { viewModel.updateUIScale(-0.05f) }, onPlus = { viewModel.updateUIScale(0.05f) })
-            }
+        // Settings Button (Gear)
+        IconButton(onClick = { viewModel.setSidebarMode(TerminalViewModel.SidebarMode.SETTINGS) }, modifier = Modifier.size(barWidth)) {
+            Icon(Icons.Default.Settings, "Settings", tint = if (sidebarOpen && sidebarMode == TerminalViewModel.SidebarMode.SETTINGS) Color.White else Color.Gray, modifier = Modifier.size(iconSize))
         }
-    }
-}
-
-@Composable
-fun SettingRow(label: String, value: String, uiScale: Float, onMinus: () -> Unit, onPlus: () -> Unit) {
-    Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("$label: $value", color = Color.White, modifier = Modifier.weight(1f), fontSize = (12 * uiScale).sp)
-        IconButton(onClick = onMinus, modifier = Modifier.size((32 * uiScale).dp)) { Icon(Icons.Default.Remove, null, tint = Color.White, modifier = Modifier.size((16 * uiScale).dp)) }
-        IconButton(onClick = onPlus, modifier = Modifier.size((32 * uiScale).dp)) { Icon(Icons.Default.Add, null, tint = Color.White, modifier = Modifier.size((16 * uiScale).dp)) }
     }
 }

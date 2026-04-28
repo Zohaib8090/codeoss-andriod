@@ -19,6 +19,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
         viewModel = androidx.lifecycle.ViewModelProvider(this)[TerminalViewModel::class.java]
         setContent {
             CodeOSSTheme {

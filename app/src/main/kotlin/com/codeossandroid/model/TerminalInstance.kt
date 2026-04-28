@@ -20,6 +20,9 @@ class TerminalInstance(
         client
     )
 
+    // Holds a reference to the TerminalView currently displaying this instance
+    var boundView: com.termux.view.TerminalView? = null
+
     fun sendInput(text: String) {
         session.write(text)
     }
@@ -32,4 +35,3 @@ class TerminalInstance(
         return session.emulator?.screen?.getTranscriptText() ?: ""
     }
 }
-
