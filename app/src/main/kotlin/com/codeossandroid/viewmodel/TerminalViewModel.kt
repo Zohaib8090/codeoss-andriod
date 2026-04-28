@@ -370,6 +370,8 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     val availableExtensions = _availableExtensions.asStateFlow()
     private val _isScanningMarketplace = MutableStateFlow(false)
     val isScanningMarketplace = _isScanningMarketplace.asStateFlow()
+    private val _activeGithubExtensionDetail = MutableStateFlow<com.codeossandroid.bridge.Extension?>(null)
+    val activeGithubExtensionDetail = _activeGithubExtensionDetail.asStateFlow()
 
     fun scanMarketplace() {
         viewModelScope.launch(Dispatchers.IO) {
@@ -380,10 +382,18 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun installExtension(extension: com.codeossandroid.bridge.Extension) {
+    fun selectGithubExtension(extension: com.codeossandroid.bridge.Extension?) {
+        _activeGithubExtensionDetail.value = extension
+        if (extension != null) {
+            _sidebarOpen.value = false
+            _activeExtensionDetail.value = null // Clear OpenVSX detail if any
+        }
+    }
+
+    fun installGithubExtension(extension: com.codeossandroid.bridge.Extension, version: String? = null) {
         viewModelScope.launch(Dispatchers.IO) {
-            val success = com.codeossandroid.bridge.ExtensionManager.installExtension(getApplication(), extension) {
-                // Handle progress if needed
+            val success = com.codeossandroid.bridge.ExtensionManager.installExtension(getApplication(), extension, version) {
+                // Handle progress
             }
             if (success) {
                 scanMarketplace() // Refresh list
