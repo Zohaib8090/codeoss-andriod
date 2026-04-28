@@ -31,7 +31,7 @@ Clone a repo, install npm packages, and run a dev server — all from your phone
 3. Open the downloaded APK and tap **Install**
 4. Open CodeOSS Android and start coding
 
-> **Minimum requirements:** Android 10+, arm64-v8a device (most modern Android phones), ~200MB free storage
+> **Minimum requirements:** Android 10+, arm64-v8a device (most modern Android phones), ~500MB free storage
 
 ---
 
