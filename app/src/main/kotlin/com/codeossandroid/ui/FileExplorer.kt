@@ -327,6 +327,14 @@ fun FileTreeNode(
                 )
                 HorizontalDivider(color = Color(0xFF30363D))
                 DropdownMenuItem(
+                    text = { Text("Open Here", color = Color.White) },
+                    onClick = {
+                        onOpenFile(file)
+                        showMenu = false
+                    },
+                    leadingIcon = { Icon(Icons.Default.OpenInNew, null, tint = Color.Gray, modifier = Modifier.size(18.dp)) }
+                )
+                DropdownMenuItem(
                     text = { Text("Rename", color = Color.White) },
                     onClick = { showMenu = false; showRenameDialog = true },
                     leadingIcon = { Icon(Icons.Default.Edit, null, tint = Color.Gray, modifier = Modifier.size(16.dp)) }

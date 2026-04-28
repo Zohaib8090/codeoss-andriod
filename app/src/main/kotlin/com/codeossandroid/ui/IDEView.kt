@@ -24,7 +24,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -45,6 +47,7 @@ fun IDEView(viewModel: TerminalViewModel) {
     val panelHeight by viewModel.panelHeight.collectAsState()
     val uiScale by viewModel.uiScale.collectAsState()
     val sidebarOpen by viewModel.sidebarOpen.collectAsState()
+    val sidebarMode by viewModel.sidebarMode.collectAsState()
     val activeProject by viewModel.activeProject.collectAsState()
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -69,14 +72,36 @@ fun IDEView(viewModel: TerminalViewModel) {
                     Box(modifier = Modifier.fillMaxWidth().weight(1f).background(Color(0xFF0D1117))) {
                         if (activeExtensionDetail != null) {
                             ExtensionDetailView(activeExtensionDetail!!, viewModel)
+                        } else if (sidebarMode == TerminalViewModel.SidebarMode.BROWSER) {
+                            BrowserView(viewModel)
                         } else {
-                            CodeEditor(viewModel)
+                            val activeTabIndices by viewModel.activeTabIndices.collectAsState()
+                            Row(modifier = Modifier.fillMaxSize()) {
+                                activeTabIndices.keys.sorted().forEach { viewportId ->
+                                    Box(modifier = Modifier.weight(1f).fillMaxHeight().border(1.dp, Color(0xFF30363D))) {
+                                        CodeEditor(viewModel, viewportId)
+                                    }
+                                }
+                            }
                         }
                     }
                     if (isPanelVisible) {
-                        Box(modifier = Modifier.fillMaxWidth().height(2.dp).background(Color(0xFF30363D)).draggable(
-                            orientation = Orientation.Vertical, state = rememberDraggableState { delta -> viewModel.updatePanelHeight((-delta).dp) }
-                        ))
+                        val density = LocalDensity.current
+                        Box(modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp) // Larger hit target
+                            .background(Color.Transparent)
+                            .draggable(
+                                orientation = Orientation.Vertical,
+                                state = rememberDraggableState { delta ->
+                                    val deltaDp = with(density) { delta.toDp() }
+                                    viewModel.updatePanelHeight(-deltaDp)
+                                }
+                            ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(modifier = Modifier.fillMaxWidth().height(2.dp).background(Color(0xFF30363D)))
+                        }
                         BottomPanel(viewModel, constrainedHeight)
                     }
                 }
@@ -99,7 +124,51 @@ fun IDEView(viewModel: TerminalViewModel) {
         if (previewFile != null) {
             FilePreview(previewFile!!, onDismiss = { viewModel.closePreview() })
         }
+
+        val availableUpdate by viewModel.availableUpdate.collectAsState()
+        if (availableUpdate != null) {
+            UpdateDialog(availableUpdate!!, onDismiss = { viewModel.dismissUpdate() })
+        }
     }
+}
+
+@Composable
+fun UpdateDialog(update: TerminalViewModel.UpdateInfo, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Update Available! 🚀", color = Color.White) },
+        text = {
+            Column {
+                Text("Version ${update.version} is now available on GitHub.", color = Color.Gray, fontSize = 14.sp)
+                Spacer(Modifier.height(8.dp))
+                Text("Release Notes:", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Box(modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp).verticalScroll(rememberScrollState())) {
+                    Text(update.releaseNotes, color = Color.Gray, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(update.downloadUrl))
+                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(intent)
+                    onDismiss()
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF238636))
+            ) {
+                Text("Update Now", color = Color.White)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Later", color = Color.Gray)
+            }
+        },
+        containerColor = Color(0xFF161B22),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+    )
 }
 
 @Composable
@@ -120,7 +189,66 @@ fun ProjectSidebar(viewModel: TerminalViewModel) {
             TerminalViewModel.SidebarMode.SEARCH -> SearchContent(viewModel)
             TerminalViewModel.SidebarMode.EXTENSIONS -> ExtensionsContent(viewModel)
             TerminalViewModel.SidebarMode.MARKETPLACE -> Text("Marketplace Coming Soon", color = Color.Gray, modifier = Modifier.padding(16.dp))
+            TerminalViewModel.SidebarMode.DEBUG -> DebugContent(viewModel)
+            TerminalViewModel.SidebarMode.BROWSER -> Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                Text("Web Preview Tools\n\nDebugger Bridge Active", color = Color.Gray, fontSize = (11 * uiScale).sp, fontFamily = FontFamily.Monospace)
+            }
         }
+    }
+}
+
+@Composable
+fun DebugContent(viewModel: TerminalViewModel) {
+    val uiScale by viewModel.uiScale.collectAsState()
+    
+    Column(modifier = Modifier.fillMaxSize().background(Color(0xFF0D1117))) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("RUN AND DEBUG", color = Color.White.copy(alpha = 0.7f), fontSize = (12 * uiScale).sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp)
+            Spacer(Modifier.weight(1f))
+            Icon(Icons.Default.PlayArrow, null, tint = Color(0xFF238636), modifier = Modifier.size((18 * uiScale).dp))
+        }
+
+        Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            DebugSection("VARIABLES", uiScale) {
+                Box(Modifier.fillMaxWidth().padding(16.dp)) {
+                    Text("No variables available", color = Color.Gray, fontSize = (11 * uiScale).sp)
+                }
+            }
+            DebugSection("WATCH", uiScale) {
+                Box(Modifier.fillMaxWidth().padding(16.dp)) {
+                    Text("No expressions watched", color = Color.Gray, fontSize = (11 * uiScale).sp)
+                }
+            }
+            DebugSection("CALL STACK", uiScale) {
+                Box(Modifier.fillMaxWidth().padding(16.dp)) {
+                    Text("Not paused on debugger", color = Color.Gray, fontSize = (11 * uiScale).sp)
+                }
+            }
+            DebugSection("BREAKPOINTS", uiScale) {
+                Box(Modifier.fillMaxWidth().padding(16.dp)) {
+                    Text("No breakpoints set", color = Color.Gray, fontSize = (11 * uiScale).sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DebugSection(title: String, uiScale: Float, content: @Composable () -> Unit) {
+    var expanded by remember { mutableStateOf(true) }
+    Column(modifier = Modifier.animateContentSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }.background(Color(0xFF21262D).copy(alpha = 0.5f)).padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(if (expanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowRight, null, tint = Color.Gray, modifier = Modifier.size((16 * uiScale).dp))
+            Spacer(Modifier.width(4.dp))
+            Text(title, color = Color.White, fontSize = (11 * uiScale).sp, fontWeight = FontWeight.Bold)
+        }
+        if (expanded) content()
     }
 }
 
@@ -646,9 +774,75 @@ fun BottomPanel(viewModel: TerminalViewModel, height: Dp) {
                     "TERMINAL" -> TerminalTabContent(viewModel)
                     "PROBLEMS" -> ProblemsView(viewModel)
                     "OUTPUT" -> OutputView(viewModel)
+                    "DEBUG CONSOLE" -> DebugConsoleView(viewModel)
                     "PORTS" -> PortsTabContent(viewModel)
                     else -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(selectedTab, color = Color.DarkGray) }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun DebugConsoleView(viewModel: TerminalViewModel) {
+    val logcatLines by viewModel.logcatOutput.collectAsState()
+    val filter by viewModel.logcatFilter.collectAsState()
+    val uiScale by viewModel.uiScale.collectAsState()
+    val scrollState = rememberScrollState()
+    
+    val filteredLines = remember(logcatLines, filter) {
+        if (filter.isBlank()) logcatLines
+        else logcatLines.filter { it.contains(filter, ignoreCase = true) }
+    }
+
+    // Auto-scroll to bottom
+    LaunchedEffect(filteredLines.size) {
+        scrollState.animateScrollTo(scrollState.maxValue)
+    }
+
+    Column(modifier = Modifier.fillMaxSize().background(Color(0xFF0D1117))) {
+        // Toolbar with Filter and Stop
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            BasicTextField(
+                value = filter,
+                onValueChange = { viewModel.updateLogcatFilter(it) },
+                modifier = Modifier.weight(1f).background(Color(0xFF161B22), androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                    .border(1.dp, Color(0xFF30363D), androidx.compose.foundation.shape.RoundedCornerShape(4.dp)).padding(8.dp),
+                textStyle = TextStyle(color = Color.White, fontSize = (11 * uiScale).sp, fontFamily = FontFamily.Monospace),
+                cursorBrush = SolidColor(Color(0xFF58A6FF)),
+                decorationBox = { innerTextField ->
+                    if (filter.isEmpty()) Text("Filter (e.g. text, !exclude)", color = Color.Gray, fontSize = (11 * uiScale).sp)
+                    innerTextField()
+                }
+            )
+            Spacer(Modifier.width(8.dp))
+            IconButton(
+                onClick = { viewModel.stopDebugProcess() },
+                modifier = Modifier.size((32 * uiScale).dp).background(Color(0xFFF85149).copy(alpha = 0.1f), androidx.compose.foundation.shape.CircleShape)
+            ) {
+                Icon(Icons.Default.Stop, "Stop Process", tint = Color(0xFFF85149), modifier = Modifier.size((18 * uiScale).dp))
+            }
+        }
+        HorizontalDivider(color = Color(0xFF30363D))
+
+        Column(modifier = Modifier.weight(1f).padding(8.dp).verticalScroll(scrollState)) {
+            filteredLines.forEach { line ->
+                val color = when {
+                    line.contains(" E ") || line.contains("Error") -> Color(0xFFF85149)
+                    line.contains(" W ") || line.contains("Warn") -> Color(0xFFD29922)
+                    line.contains(" I ") -> Color(0xFF58A6FF)
+                    else -> Color.Gray
+                }
+                Text(
+                    text = line,
+                    color = color,
+                    fontSize = (10 * uiScale).sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(vertical = 1.dp)
+                )
             }
         }
     }

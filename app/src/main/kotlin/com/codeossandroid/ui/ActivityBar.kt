@@ -58,9 +58,24 @@ fun ActivityBar(viewModel: TerminalViewModel) {
             Icon(Icons.Default.Storefront, "Marketplace", tint = if (sidebarOpen && sidebarMode == TerminalViewModel.SidebarMode.MARKETPLACE) Color.White else Color.Gray, modifier = Modifier.size(iconSize))
         }
 
+        // Debug Button
+        IconButton(onClick = { viewModel.setSidebarMode(TerminalViewModel.SidebarMode.DEBUG) }, modifier = Modifier.size(barWidth)) {
+            Icon(Icons.Default.BugReport, "Run and Debug", tint = if (sidebarOpen && sidebarMode == TerminalViewModel.SidebarMode.DEBUG) Color.White else Color.Gray, modifier = Modifier.size(iconSize))
+        }
+
         // Terminal Panel Button
         IconButton(onClick = { viewModel.togglePanel(!isPanelVisible) }, modifier = Modifier.size(barWidth)) {
             Icon(Icons.Default.Terminal, "Terminal", tint = if (isPanelVisible) Color.White else Color.Gray, modifier = Modifier.size(iconSize))
+        }
+
+        // Debug Button
+        IconButton(onClick = { viewModel.setSidebarMode(TerminalViewModel.SidebarMode.DEBUG) }, modifier = Modifier.size(barWidth)) {
+            Icon(Icons.Default.BugReport, "Debug", tint = if (sidebarOpen && sidebarMode == TerminalViewModel.SidebarMode.DEBUG) Color.White else Color.Gray, modifier = Modifier.size(iconSize))
+        }
+
+        // Browser Button
+        IconButton(onClick = { viewModel.setSidebarMode(TerminalViewModel.SidebarMode.BROWSER) }, modifier = Modifier.size(barWidth)) {
+            Icon(Icons.Default.Language, "Browser", tint = if (sidebarOpen && sidebarMode == TerminalViewModel.SidebarMode.BROWSER) Color.White else Color.Gray, modifier = Modifier.size(iconSize))
         }
 
         Spacer(Modifier.weight(1f))

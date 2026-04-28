@@ -24,12 +24,21 @@ class MainActivity : ComponentActivity() {
             CodeOSSTheme {
                 val isReady by viewModel.isReady.collectAsState()
                 
-                // Automatically ask for notification permission on startup
+                // Automatically ask for permissions on startup
                 androidx.compose.runtime.LaunchedEffect(Unit) {
+                    val permissions = mutableListOf<String>()
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                        if (androidx.core.content.ContextCompat.checkSelfPermission(this@MainActivity, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                            androidx.core.app.ActivityCompat.requestPermissions(this@MainActivity, arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
-                        }
+                        permissions.add(android.Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                    permissions.add(android.Manifest.permission.CAMERA)
+                    permissions.add(android.Manifest.permission.RECORD_AUDIO)
+
+                    val toRequest = permissions.filter {
+                        androidx.core.content.ContextCompat.checkSelfPermission(this@MainActivity, it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                    }
+
+                    if (toRequest.isNotEmpty()) {
+                        androidx.core.app.ActivityCompat.requestPermissions(this@MainActivity, toRequest.toTypedArray(), 101)
                     }
                 }
 
