@@ -21,58 +21,44 @@ class SyntaxHighlighter(val extension: String) {
     }
 
     private fun formatMarkdown(text: String): AnnotatedString {
-        val builder = AnnotatedString.Builder()
+        val builder = AnnotatedString.Builder(text)
+        
+        var lineStart = 0
         val lines = text.split("\n")
-        lines.forEachIndexed { i, line ->
-            when {
-                line.startsWith("#") -> {
-                    val hashes = line.takeWhile { it == '#' }.length
-                    val color = when(hashes) {
-                        1 -> Color(0xFF58A6FF) // Blue
-                        2 -> Color(0xFF79C0FF) // Light Blue
-                        else -> Color(0xFFA5D6FF)
-                    }
-                    builder.withStyle(SpanStyle(color = color, fontWeight = FontWeight.Bold)) {
-                        append(line)
-                    }
+        
+        val boldRegex = Regex("\\*\\*(.*?)\\*\\*")
+        val codeRegex = Regex("`(.*?)`")
+        val linkRegex = Regex("\\[(.*?)\\]\\((.*?)\\)")
+        
+        for (line in lines) {
+            val lineLength = line.length
+            
+            if (line.startsWith("#")) {
+                val hashes = line.takeWhile { it == '#' }.length
+                val color = when(hashes) {
+                    1 -> Color(0xFF58A6FF) // Blue
+                    2 -> Color(0xFF79C0FF) // Light Blue
+                    else -> Color(0xFFA5D6FF)
                 }
-                line.startsWith(">") -> {
-                    builder.withStyle(SpanStyle(color = Color(0xFF8B949E))) {
-                        append(line)
-                    }
+                builder.addStyle(SpanStyle(color = color, fontWeight = FontWeight.Bold), lineStart, lineStart + lineLength)
+            } else if (line.startsWith(">")) {
+                builder.addStyle(SpanStyle(color = Color(0xFF8B949E)), lineStart, lineStart + lineLength)
+            } else if (line.trim().startsWith("-") || line.trim().startsWith("*")) {
+                builder.addStyle(SpanStyle(color = Color(0xFFFFA657)), lineStart, lineStart + lineLength)
+            } else {
+                boldRegex.findAll(line).forEach { 
+                    builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold, color = Color.White), lineStart + it.range.first, lineStart + it.range.last + 1)
                 }
-                line.trim().startsWith("-") || line.trim().startsWith("*") -> {
-                    builder.withStyle(SpanStyle(color = Color(0xFFFFA657))) {
-                        append(line)
-                    }
+                codeRegex.findAll(line).forEach { 
+                    builder.addStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = Color(0xFF30363D), color = Color(0xFFE6EDF3)), lineStart + it.range.first, lineStart + it.range.last + 1)
                 }
-                else -> {
-                    var currentPos = 0
-                    val boldRegex = Regex("\\*\\*(.*?)\\*\\*")
-                    val codeRegex = Regex("`(.*?)`")
-                    val linkRegex = Regex("\\[(.*?)\\]\\((.*?)\\)")
-                    
-                    // Simple sequential parsing for inline styles
-                    // For now, let's just append the line normally and apply basic regex
-                    // (Real markdown parsing is complex, this is a simplified version)
-                    builder.append(line)
-                    
-                    // Apply styles post-append for this line
-                    val lineStart = builder.length - line.length
-                    
-                    boldRegex.findAll(line).forEach { 
-                        builder.addStyle(SpanStyle(fontWeight = FontWeight.Bold, color = Color.White), lineStart + it.range.first, lineStart + it.range.last + 1)
-                    }
-                    codeRegex.findAll(line).forEach { 
-                        builder.addStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = Color(0xFF30363D), color = Color(0xFFE6EDF3)), lineStart + it.range.first, lineStart + it.range.last + 1)
-                    }
-                    linkRegex.findAll(line).forEach {
-                        builder.addStyle(SpanStyle(color = Color(0xFF58A6FF)), lineStart + it.range.first, lineStart + it.range.last + 1)
-                    }
+                linkRegex.findAll(line).forEach {
+                    builder.addStyle(SpanStyle(color = Color(0xFF58A6FF)), lineStart + it.range.first, lineStart + it.range.last + 1)
                 }
             }
-            if (i < lines.size - 1) builder.append("\n")
+            lineStart += lineLength + 1 // +1 for the newline
         }
+        
         return builder.toAnnotatedString()
     }
 

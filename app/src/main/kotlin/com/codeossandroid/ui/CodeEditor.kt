@@ -1,6 +1,6 @@
 package com.codeossandroid.ui
 
-import androidx.compose.foundation.background
+import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
@@ -23,42 +23,108 @@ import androidx.compose.ui.unit.sp
 import com.codeossandroid.viewmodel.TerminalViewModel
 
 @Composable
-fun CodeEditor(viewModel: TerminalViewModel) {
-    val editorText by viewModel.editorText.collectAsState()
+fun CodeEditor(viewModel: TerminalViewModel, viewportId: Int = 0) {
+    val openTabs by viewModel.openTabs.collectAsState()
+    val activeTabIndices by viewModel.activeTabIndices.collectAsState()
+    val activeTabIndex = activeTabIndices[viewportId] ?: -1
     val fontSize by viewModel.fontSize.collectAsState()
     val uiScale by viewModel.uiScale.collectAsState()
-    val currentFile by viewModel.currentFile.collectAsState()
+    val focusedViewportId by viewModel.focusedViewportId.collectAsState()
+    val isFocused = focusedViewportId == viewportId
 
-    if (currentFile == null) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    if (activeTabIndex == -1 || openTabs.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0D1117)), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(Icons.Default.Code, null, tint = Color.DarkGray, modifier = Modifier.size((48 * uiScale).dp))
                 Spacer(Modifier.height(16.dp))
                 Text("Select a file to edit", color = Color.Gray, fontSize = (14 * uiScale).sp, fontFamily = FontFamily.Monospace)
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = { viewModel.setSidebarMode(TerminalViewModel.SidebarMode.EXPLORER) },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF21262D))
+                ) {
+                    Text("Open Explorer", color = Color.White)
+                }
             }
         }
         return
     }
 
-    Column(modifier = Modifier.fillMaxSize().background(Color(0xFF0D1117))) {
+    val activeTab = openTabs.getOrNull(activeTabIndex) ?: return
+
+    Column(modifier = Modifier.fillMaxSize().background(Color(0xFF0D1117))
+        .clickable(
+            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+            indication = null
+        ) { 
+            viewModel.updateFocusedViewport(viewportId) 
+        }
+        .border(1.dp, if (isFocused) Color(0xFF58A6FF) else Color.Transparent)
+    ) {
+        // Tab Bar
         Row(
-            modifier = Modifier.fillMaxWidth().height((28 * uiScale).dp).background(Color(0xFF161B22)).padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier.fillMaxWidth().height((35 * uiScale).dp).background(Color(0xFF161B22)).horizontalScroll(rememberScrollState()),
+            verticalAlignment = Alignment.Bottom
         ) {
-            Text(currentFile?.path?.substringAfter("projects/") ?: "", color = Color(0xFF8B949E), fontSize = (10 * uiScale).sp, fontFamily = FontFamily.Monospace)
-            Spacer(Modifier.weight(1f))
-            IconButton(onClick = { viewModel.saveCurrentFile() }, modifier = Modifier.size((24 * uiScale).dp)) {
-                Icon(Icons.Default.Save, null, tint = Color(0xFF58A6FF), modifier = Modifier.size((14 * uiScale).dp))
-            }
-            Spacer(Modifier.width(4.dp))
-            IconButton(onClick = { viewModel.closeFile() }, modifier = Modifier.size((24 * uiScale).dp)) {
-                Icon(Icons.Default.Close, null, tint = Color.Gray, modifier = Modifier.size((14 * uiScale).dp))
+            openTabs.forEachIndexed { index, tab ->
+                val isActive = index == activeTabIndex
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .widthIn(min = (100 * uiScale).dp, max = (200 * uiScale).dp)
+                        .background(if (isActive) Color(0xFF0D1117) else Color(0xFF161B22))
+                        .clickable { viewModel.switchTab(viewportId, index) }
+                        .padding(horizontal = 8.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = tab.file.name,
+                            color = if (isActive) Color.White else Color.Gray,
+                            fontSize = (11 * uiScale).sp,
+                            maxLines = 1,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (tab.isModified) {
+                            Box(Modifier.size(8.dp).background(Color(0xFF58A6FF), shape = androidx.compose.foundation.shape.CircleShape))
+                        }
+                        IconButton(onClick = { viewModel.closeTab(index) }, modifier = Modifier.size((16 * uiScale).dp)) {
+                            Icon(Icons.Default.Close, null, tint = Color.Gray, modifier = Modifier.size((10 * uiScale).dp))
+                        }
+                    }
+                    if (isActive) {
+                        Box(Modifier.fillMaxWidth().height(2.dp).background(Color(0xFFF78166)).align(Alignment.TopCenter))
+                    }
+                }
+                Divider(modifier = Modifier.fillMaxHeight().width(1.dp), color = Color(0xFF30363D))
             }
         }
 
+        // Toolbar for Split Actions
+        Row(
+            modifier = Modifier.fillMaxWidth().height((28 * uiScale).dp).background(Color(0xFF0D1117)).padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(activeTab.file.path.substringAfter("projects/"), color = Color(0xFF8B949E), fontSize = (9 * uiScale).sp, fontFamily = FontFamily.Monospace)
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = { viewModel.saveCurrentFile(viewportId) }, modifier = Modifier.size((24 * uiScale).dp)) {
+                Icon(Icons.Default.Save, null, tint = Color(0xFF58A6FF), modifier = Modifier.size((14 * uiScale).dp))
+            }
+            IconButton(onClick = { viewModel.splitViewport(viewportId) }, modifier = Modifier.size((24 * uiScale).dp)) {
+                Icon(Icons.Default.VerticalSplit, null, tint = Color.Gray, modifier = Modifier.size((14 * uiScale).dp))
+            }
+            if (activeTabIndices.size > 1) {
+                IconButton(onClick = { viewModel.removeViewport(viewportId) }, modifier = Modifier.size((24 * uiScale).dp)) {
+                    Icon(Icons.Default.Close, null, tint = Color(0xFFF85149), modifier = Modifier.size((14 * uiScale).dp))
+                }
+            }
+        }
+
+        Divider(color = Color(0xFF30363D))
+
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             val scrollState = rememberScrollState()
-            val lineCount = editorText.text.count { it == '\n' } + 1
+            val lineCount = activeTab.text.text.count { it == '\n' } + 1
             
             Row(modifier = Modifier.fillMaxSize().verticalScroll(scrollState)) {
                 Column(
@@ -77,10 +143,10 @@ fun CodeEditor(viewModel: TerminalViewModel) {
                     }
                 }
 
-                val extension = currentFile?.extension ?: ""
+                val extension = activeTab.file.extension
                 BasicTextField(
-                    value = editorText,
-                    onValueChange = { viewModel.updateEditorText(it) },
+                    value = activeTab.text,
+                    onValueChange = { viewModel.updateEditorText(viewportId, it) },
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp, start = 8.dp),
                     textStyle = TextStyle(
                         color = Color(0xFFCDD9E5),

@@ -1,5 +1,6 @@
 package com.codeossandroid.ui
 
+import android.util.Log
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -38,8 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.codeossandroid.model.TerminalInstance
 import com.codeossandroid.viewmodel.TerminalViewModel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.*
 
 @Composable
 fun TerminalTabContent(viewModel: TerminalViewModel) {
@@ -168,143 +168,79 @@ fun ControlButton(text: String, modifier: Modifier, uiScale: Float, onClick: () 
 @Composable
 fun TerminalComponent(viewModel: TerminalViewModel, instance: TerminalInstance?) {
     if (instance == null) return
-    val output = instance.output
     val fontSize by viewModel.fontSize.collectAsState()
-    val focusRequester = remember { FocusRequester() }
-    val keyboardController = LocalSoftwareKeyboardController.current
-    
-    var textState by remember { mutableStateOf(TextFieldValue("\u200B", TextRange(1))) }
-    val listState = rememberLazyListState()
-    var cursorVisible by remember { mutableStateOf(true) }
-    
-    var showUrlDialog by remember { mutableStateOf<String?>(null) }
-    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
 
-    if (showUrlDialog != null) {
-        AlertDialog(
-            onDismissRequest = { showUrlDialog = null },
-            title = { Text("Open Website?") },
-            text = { Text("You are about to be redirected to:\n${showUrlDialog}", color = Color.Gray) },
-            confirmButton = {
-                Button(onClick = { 
-                    try { uriHandler.openUri(showUrlDialog!!) } catch (e: Exception) {}
-                    showUrlDialog = null 
-                }) { Text("Open") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showUrlDialog = null }) { Text("Cancel") }
-            },
-            containerColor = Color(0xFF161B22)
-        )
-    }
-
-    LaunchedEffect(Unit) { while (true) { delay(500); cursorVisible = !cursorVisible } }
-    LaunchedEffect(instance.output.size) { 
-        if (instance.output.isNotEmpty()) {
-            listState.animateScrollToItem(instance.output.size - 1)
-        }
-    }
-
-    Box(modifier = Modifier
-        .fillMaxSize()
-        .padding(2.dp)
-        .border(1.dp, Color(0xFF30363D))
-        .pointerInput(Unit) {
-            detectTapGestures {
-                focusRequester.requestFocus()
-                keyboardController?.show()
+    androidx.compose.ui.viewinterop.AndroidView(
+        factory = { context ->
+            com.termux.view.TerminalView(context, null).apply {
+                // TerminalViewClient must be set BEFORE setTextSize/attachSession
+                // otherwise updateSize() throws NPE on onEmulatorSet()
+                setTerminalViewClient(object : com.termux.view.TerminalViewClient {
+                    override fun onScale(scale: Float): Float = scale
+                    override fun onSingleTapUp(e: android.view.MotionEvent) {
+                        requestFocus()
+                        val imm = context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                        imm.showSoftInput(this@apply, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                    }
+                    override fun shouldBackButtonBeMappedToEscape(): Boolean = false
+                    override fun shouldEnforceCharBasedInput(): Boolean = false
+                    override fun shouldUseCtrlSpaceWorkaround(): Boolean = false
+                    override fun isTerminalViewSelected(): Boolean = true
+                    override fun copyModeChanged(copyMode: Boolean) {}
+                    override fun onKeyDown(keyCode: Int, e: android.view.KeyEvent, session: com.termux.terminal.TerminalSession): Boolean = false
+                    override fun onKeyUp(keyCode: Int, e: android.view.KeyEvent): Boolean = false
+                    override fun onLongPress(event: android.view.MotionEvent): Boolean = false
+                    override fun readControlKey(): Boolean = viewModel.isCtrlActive.value
+                    override fun readAltKey(): Boolean = false
+                    override fun readShiftKey(): Boolean = false
+                    override fun readFnKey(): Boolean = false
+                    override fun onCodePoint(codePoint: Int, ctrlDown: Boolean, session: com.termux.terminal.TerminalSession): Boolean = false
+                    override fun onEmulatorSet() {}
+                    override fun logError(tag: String, message: String) {}
+                    override fun logWarn(tag: String, message: String) {}
+                    override fun logInfo(tag: String, message: String) {}
+                    override fun logDebug(tag: String, message: String) {}
+                    override fun logVerbose(tag: String, message: String) {}
+                    override fun logStackTraceWithMessage(tag: String, message: String, e: Exception) {}
+                    override fun logStackTrace(tag: String, e: Exception) {}
+                })
+                
+                isFocusable = true
+                isFocusableInTouchMode = true
+                
+                // setTextSize creates the TerminalRenderer — must come before attachSession
+                setTextSize(fontSize)
+                attachSession(instance.session)
+                
+                // Crucial: The TerminalView needs to be notified when the session text changes
+                // to trigger a redraw. We set a client that calls postInvalidate().
+                instance.session.updateTerminalSessionClient(object : com.termux.terminal.TerminalSessionClient {
+                    override fun onTextChanged(changedSession: com.termux.terminal.TerminalSession) {
+                        postInvalidate()
+                    }
+                    override fun onTitleChanged(changedSession: com.termux.terminal.TerminalSession) {}
+                    override fun onSessionFinished(finishedSession: com.termux.terminal.TerminalSession) {}
+                    override fun onCopyTextToClipboard(session: com.termux.terminal.TerminalSession, text: String) {}
+                    override fun onPasteTextFromClipboard(session: com.termux.terminal.TerminalSession) {}
+                    override fun onBell(session: com.termux.terminal.TerminalSession) {}
+                    override fun onColorsChanged(session: com.termux.terminal.TerminalSession) {}
+                    override fun onTerminalCursorStateChange(state: Boolean) {}
+                    override fun getTerminalCursorStyle(): Int = com.termux.terminal.TerminalEmulator.TERMINAL_CURSOR_STYLE_BLOCK
+                    override fun logError(tag: String, message: String) {}
+                    override fun logWarn(tag: String, message: String) {}
+                    override fun logInfo(tag: String, message: String) {}
+                    override fun logDebug(tag: String, message: String) {}
+                    override fun logVerbose(tag: String, message: String) {}
+                    override fun logStackTraceWithMessage(tag: String, message: String, e: Exception) {}
+                    override fun logStackTrace(tag: String, e: Exception) {}
+                })
             }
-        }
-    ) {
-        BasicTextField(
-            value = textState,
-            onValueChange = { newValue: TextFieldValue ->
-                if (newValue.text.length > textState.text.length) {
-                    var added = newValue.text.substring(textState.text.length)
-                    if (viewModel.isCtrlActive.value && added.isNotEmpty()) {
-                        val char = added[0].lowercaseChar()
-                        if (char in 'a'..'z') {
-                            added = (char - 'a' + 1).toChar().toString()
-                        }
-                        viewModel.setCtrl(false)
-                    }
-                    instance.pty.write(added)
-                } else if (newValue.text.length < textState.text.length) {
-                    repeat(textState.text.length - newValue.text.length) {
-                        instance.pty.write("\b")
-                    }
-                }
-                textState = TextFieldValue("\u200B", TextRange(1))
-            },
-            modifier = Modifier.size(1.dp).focusRequester(focusRequester).onKeyEvent {
-                if (it.type == KeyEventType.KeyDown) {
-                    when (it.key) {
-                        Key.Enter -> { viewModel.sendInput("\n"); true }
-                        else -> false
-                    }
-                } else false
-            },
-            keyboardOptions = KeyboardOptions(
-                imeAction = ImeAction.None, 
-                autoCorrect = false,
-                keyboardType = androidx.compose.ui.text.input.KeyboardType.Password
-            ),
-            textStyle = TextStyle(color = Color.Transparent)
-        )
-        
-        SelectionContainer {
-            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().padding(8.dp)) {
-                items(output.size) { index ->
-                    val rawLine = output[index]
-                    val isLastLine = index == output.size - 1
-                    
-                    // Linkify the line
-                    val urlRegex = Regex("(https?://\\S+|localhost:\\d+|www\\.\\S+)")
-                    val annotatedLine = buildAnnotatedString {
-                        var lastMatchEnd = 0
-                        urlRegex.findAll(rawLine.text).forEach { match ->
-                            // Append text before match
-                            append(rawLine.subSequence(lastMatchEnd, match.range.first))
-                            
-                            // Append link
-                            pushStringAnnotation(tag = "URL", annotation = match.value)
-                            withStyle(style = SpanStyle(color = Color(0xFF58A6FF), textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline)) {
-                                append(match.value)
-                            }
-                            pop()
-                            lastMatchEnd = match.range.last + 1
-                        }
-                        // Append remaining text
-                        if (lastMatchEnd < rawLine.length) {
-                            append(rawLine.subSequence(lastMatchEnd, rawLine.length))
-                        }
-                        
-                        if (isLastLine && cursorVisible) {
-                            append("█")
-                        } else if (isLastLine) {
-                            append(" ")
-                        }
-                    }
-
-                    androidx.compose.foundation.text.ClickableText(
-                        text = annotatedLine,
-                        style = TextStyle(
-                            color = Color(0xFFCCCCCC),
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = fontSize.sp,
-                            lineHeight = (fontSize + 4).sp
-                        ),
-                        onClick = { offset ->
-                            annotatedLine.getStringAnnotations(tag = "URL", start = offset, end = offset)
-                                .firstOrNull()?.let { annotation ->
-                                    showUrlDialog = annotation.item
-                                }
-                        }
-                    )
-                }
-            }
-        }
-    }
+        },
+        update = { view ->
+            view.setTextSize(fontSize)
+        },
+        modifier = Modifier.fillMaxSize()
+    )
 }
 
 @Composable

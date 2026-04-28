@@ -8,12 +8,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import com.codeossandroid.bridge.GitBridge
 import com.codeossandroid.bridge.PtyBridge
 import com.codeossandroid.bridge.ZipUtils
 import com.codeossandroid.model.TerminalInstance
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -171,11 +172,103 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private val _expandedDirs = MutableStateFlow<Set<String>>(emptySet())
     val expandedDirs = _expandedDirs.asStateFlow()
     
-    enum class SidebarMode { PROJECTS, EXPLORER, SEARCH, GIT, EXTENSIONS, MARKETPLACE }
+    enum class SidebarMode { PROJECTS, EXPLORER, SEARCH, GIT, EXTENSIONS, MARKETPLACE, DEBUG, BROWSER }
     private val _sidebarMode = MutableStateFlow(SidebarMode.EXPLORER)
     val sidebarMode = _sidebarMode.asStateFlow()
     private val _searchQuery = MutableStateFlow("")
     val searchQuery = _searchQuery.asStateFlow()
+    
+    private val _logcatOutput = MutableStateFlow<List<String>>(listOf("Initializing Debug Console..."))
+    val logcatOutput = _logcatOutput.asStateFlow()
+    
+    private val _logcatFilter = MutableStateFlow("")
+    val logcatFilter = _logcatFilter.asStateFlow()
+
+    data class UpdateInfo(val version: String, val downloadUrl: String, val releaseNotes: String)
+    private val _availableUpdate = MutableStateFlow<UpdateInfo?>(null)
+    val availableUpdate = _availableUpdate.asStateFlow()
+
+    fun updateLogcatFilter(query: String) {
+        _logcatFilter.value = query
+    }
+
+    init {
+        refreshProjects()
+        startLogcatStream()
+        checkUpdate()
+    }
+
+    private fun checkUpdate() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val currentVersion = "1.0"
+                val url = java.net.URL("https://api.github.com/repos/Zohaib8090/codeoss-android/releases/latest")
+                val connection = url.openConnection() as java.net.HttpURLConnection
+                connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
+                
+                val response = connection.inputStream.bufferedReader().use { it.readText() }
+                val json = JSONObject(response)
+                val latestTag = json.getString("tag_name").replace("v", "")
+                
+                if (latestTag != currentVersion) {
+                    val assets = json.getJSONArray("assets")
+                    var downloadUrl = json.getString("html_url")
+                    for (i in 0 until assets.length()) {
+                        val asset = assets.getJSONObject(i)
+                        if (asset.getString("name").endsWith(".apk")) {
+                            downloadUrl = asset.getString("browser_download_url")
+                            break
+                        }
+                    }
+                    
+                    _availableUpdate.value = UpdateInfo(
+                        version = latestTag,
+                        downloadUrl = downloadUrl,
+                        releaseNotes = json.optString("body", "No release notes provided.")
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e("CodeOSS", "Update check failed", e)
+            }
+        }
+    }
+    
+    fun dismissUpdate() { _availableUpdate.value = null }
+
+    fun appendLogcat(line: String) {
+        val currentList = _logcatOutput.value.toMutableList()
+        currentList.add(line)
+        if (currentList.size > 500) currentList.removeAt(0)
+        _logcatOutput.value = currentList
+    }
+
+    private fun startLogcatStream() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // Clear logcat first to avoid massive backlog
+                Runtime.getRuntime().exec("logcat -c").waitFor()
+                
+                val process = Runtime.getRuntime().exec("logcat -v time")
+                val reader = process.inputStream.bufferedReader()
+                
+                var line: String?
+                while (isActive) {
+                    line = reader.readLine()
+                    if (line != null) {
+                        val currentList = _logcatOutput.value.toMutableList()
+                        currentList.add(line)
+                        // Keep only last 500 lines for performance
+                        if (currentList.size > 500) currentList.removeAt(0)
+                        _logcatOutput.value = currentList
+                    } else {
+                        delay(500)
+                    }
+                }
+            } catch (e: Exception) {
+                _logcatOutput.value = _logcatOutput.value + "Logcat stream error: ${e.message}"
+            }
+        }
+    }
     
     data class MarketplaceExtension(
         val name: String,
@@ -548,10 +641,45 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private val _isCutMode = MutableStateFlow(false)
     val isCutMode = _isCutMode.asStateFlow()
     
-    private val _editorText = MutableStateFlow(TextFieldValue(""))
-    val editorText = _editorText.asStateFlow()
-    private val _currentFile = MutableStateFlow<java.io.File?>(null)
-    val currentFile = _currentFile.asStateFlow()
+    data class EditorTab(
+        val file: java.io.File,
+        var text: TextFieldValue,
+        var isModified: Boolean = false
+    )
+
+    private val _openTabs = MutableStateFlow<List<EditorTab>>(emptyList())
+    val openTabs = _openTabs.asStateFlow()
+
+    private val _activeTabIndices = MutableStateFlow<Map<Int, Int>>(mapOf(0 to -1)) // ViewportID -> TabIndex
+    val activeTabIndices = _activeTabIndices.asStateFlow()
+    
+    private val _focusedViewportId = MutableStateFlow(0)
+    val focusedViewportId = _focusedViewportId.asStateFlow()
+
+    private val _browserUrl = MutableStateFlow("https://google.com")
+    val browserUrl = _browserUrl.asStateFlow()
+
+    fun openInBrowser(url: String) {
+        _browserUrl.value = url
+        _sidebarMode.value = SidebarMode.BROWSER
+    }
+
+    fun stopDebugProcess() {
+        val index = activeInstanceIndex.value
+        instances.value.getOrNull(index)?.let { instance ->
+            // Send Ctrl+C (SIGINT) to the PTY
+            instance.sendInput("\u0003")
+            appendLogcat("SYSTEM: Stop command sent (Ctrl+C) to session ${instance.id}")
+        }
+    }
+
+    fun closeBrowser() {
+        _sidebarMode.value = SidebarMode.EXPLORER
+    }
+
+    fun updateFocusedViewport(id: Int) {
+        _focusedViewportId.value = id
+    }
     
     private val _previewFile = MutableStateFlow<java.io.File?>(null)
     val previewFile = _previewFile.asStateFlow()
@@ -636,36 +764,111 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val projDir = java.io.File(projectsRoot, name)
         refreshFileTree(projDir)
         viewModelScope.launch(Dispatchers.IO) {
-            _instances.value.forEach { it.pty.write("cd \"${projDir.absolutePath}\"\n") }
+            _instances.value.forEach { it.sendInput("cd \"${projDir.absolutePath}\"\n") }
         }
         refreshGitStatus()
     }
 
-    fun openFile(file: java.io.File) {
+    fun openFile(file: java.io.File, targetViewportId: Int? = null) {
         if (file.isDirectory) return
-        _currentFile.value = file
+        val vid = targetViewportId ?: _focusedViewportId.value
+        
+        // Check if already open
+        val existingIndex = _openTabs.value.indexOfFirst { it.file.absolutePath == file.absolutePath }
+        if (existingIndex != -1) {
+            switchTab(vid, existingIndex)
+            return
+        }
+
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val content = file.readText()
                 withContext(Dispatchers.Main) {
-                    _editorText.value = TextFieldValue(content, TextRange(0))
+                    val newTab = EditorTab(file, TextFieldValue(content, TextRange(0)))
+                    _openTabs.value = _openTabs.value + newTab
+                    switchTab(vid, _openTabs.value.size - 1)
                 }
             } catch (e: Exception) {
                 Log.e("CodeOSS", "Failed to read file", e)
             }
         }
     }
-    
-    fun updateEditorText(value: TextFieldValue) {
-        _editorText.value = value
+
+    fun switchTab(viewportId: Int, tabIndex: Int) {
+        val current = _activeTabIndices.value.toMutableMap()
+        current[viewportId] = tabIndex
+        _activeTabIndices.value = current
     }
 
-    fun saveCurrentFile() {
-        val file = _currentFile.value ?: return
+    fun closeTab(index: Int) {
+        val currentTabs = _openTabs.value.toMutableList()
+        if (index in currentTabs.indices) {
+            currentTabs.removeAt(index)
+            _openTabs.value = currentTabs
+            
+            val currentIndices = _activeTabIndices.value.toMutableMap()
+            
+            // Update all viewports
+            currentIndices.forEach { (vid, tid) ->
+                when {
+                    // 1. If this viewport was looking at the closed tab
+                    tid == index -> {
+                        if (currentTabs.isEmpty()) {
+                            currentIndices[vid] = -1
+                        } else {
+                            // Point to the previous tab, or the new 0 if it was the first
+                            currentIndices[vid] = (tid - 1).coerceAtLeast(0)
+                        }
+                    }
+                    // 2. If this viewport was looking at a tab AFTER the closed one, shift it down
+                    tid > index -> {
+                        currentIndices[vid] = tid - 1
+                    }
+                    // 3. Otherwise, keep it as is (looking at a tab BEFORE the closed one)
+                }
+            }
+            
+            _activeTabIndices.value = currentIndices
+        }
+    }
+
+    fun splitViewport(sourceId: Int, horizontal: Boolean = true) {
+        val newId = (_activeTabIndices.value.keys.maxOrNull() ?: 0) + 1
+        val sourceTab = _activeTabIndices.value[sourceId] ?: -1
+        val current = _activeTabIndices.value.toMutableMap()
+        current[newId] = sourceTab
+        _activeTabIndices.value = current
+    }
+    
+    fun removeViewport(id: Int) {
+        if (_activeTabIndices.value.size > 1) {
+            val current = _activeTabIndices.value.toMutableMap()
+            current.remove(id)
+            _activeTabIndices.value = current
+        }
+    }
+
+    fun updateEditorText(viewportId: Int, value: TextFieldValue) {
+        val tabIndex = _activeTabIndices.value[viewportId] ?: return
+        val currentTabs = _openTabs.value.toMutableList()
+        if (tabIndex in currentTabs.indices) {
+            currentTabs[tabIndex] = currentTabs[tabIndex].copy(text = value, isModified = true)
+            _openTabs.value = currentTabs
+        }
+    }
+
+    fun saveCurrentFile(viewportId: Int) {
+        val tabIndex = _activeTabIndices.value[viewportId] ?: return
+        val tab = _openTabs.value.getOrNull(tabIndex) ?: return
+        val file = tab.file
+        
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                file.writeText(_editorText.value.text)
+                file.writeText(tab.text.text)
                 withContext(Dispatchers.Main) {
+                    val updatedTabs = _openTabs.value.toMutableList()
+                    updatedTabs[tabIndex] = updatedTabs[tabIndex].copy(isModified = false)
+                    _openTabs.value = updatedTabs
                     android.widget.Toast.makeText(getApplication(), "Saved: ${file.name}", android.widget.Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
@@ -675,7 +878,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun closeFile() {
-        _currentFile.value = null
+        // Legacy compat, could close active tab
     }
 
     fun createProject(name: String) {
@@ -705,19 +908,91 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         projDir.mkdirs()
 
         viewModelScope.launch(Dispatchers.IO) {
-            _setupStatus.value = "Cloning $url..."
-            val result = GitBridge.cloneRepo(url, projDir.absolutePath, user, token)
-            
-            withContext(Dispatchers.Main) {
-                if (result == "SUCCESS") {
-                    android.widget.Toast.makeText(getApplication(), "Clone Successful!", android.widget.Toast.LENGTH_LONG).show()
-                    refreshProjects()
-                    openProject(trimmedName)
-                } else {
-                    projDir.deleteRecursively()
-                    android.widget.Toast.makeText(getApplication(), "Clone Failed: $result", android.widget.Toast.LENGTH_LONG).show()
+            try {
+                _setupStatus.value = "Preparing clone..."
+                val context = getApplication<android.app.Application>()
+                com.codeossandroid.bridge.PtyBridge().setupEnvironment(context)
+                
+                val filesDir = context.filesDir.absolutePath
+                val logFile = java.io.File(filesDir, "git_clone.log")
+                logFile.writeText("Clone started at ${java.util.Date()}\n")
+                
+                val usrDir = "$filesDir/usr"
+                val usrBinDir = "$usrDir/bin"
+                val usrEtcDir = "$usrDir/etc"
+                val nativeLibPath = context.applicationInfo.nativeLibraryDir
+                
+                // Use the symlink we just created in setupEnvironment
+                val gitBinary = "$usrBinDir/git"
+                logFile.appendText("Binary: $gitBinary (exists: ${java.io.File(gitBinary).exists()})\n")
+                
+                // Inject credentials into URL if provided
+                val authUrl = if (user != null && token != null && user.isNotEmpty() && token.isNotEmpty()) {
+                    val encodedToken = java.net.URLEncoder.encode(token, "UTF-8")
+                    url.replace("https://", "https://$user:$encodedToken@")
+                } else url
+
+                logFile.appendText("URL: $url\n")
+                
+                val pb = ProcessBuilder(
+                    if (java.io.File(gitBinary).exists()) gitBinary else "$nativeLibPath/libgit.so", 
+                    "clone", "--progress", authUrl, projDir.absolutePath
+                )
+                
+                val env = pb.environment()
+                env["PATH"] = "$usrBinDir:/system/bin:/system/xbin"
+                env["LD_LIBRARY_PATH"] = nativeLibPath
+                env["HOME"] = filesDir
+                env["GIT_TEMPLATE_DIR"] = "$filesDir/git_templates"
+                env["GIT_CONFIG_NOSYSTEM"] = "1"
+                env["GIT_CONFIG_GLOBAL"] = "$usrEtcDir/gitconfig"
+                env["GIT_EXEC_PATH"] = usrBinDir
+                env["GIT_SSL_NO_VERIFY"] = "true"
+                
+                logFile.appendText("Env PATH: ${env["PATH"]}\n")
+                logFile.appendText("Env GIT_EXEC_PATH: ${env["GIT_EXEC_PATH"]}\n")
+                
+                pb.redirectErrorStream(true)
+                val process = pb.start()
+                val reader = process.inputStream.bufferedReader()
+                
+                var line: String?
+                while (reader.readLine().also { line = it } != null) {
+                    val currentLine = line ?: ""
+                    logFile.appendText("> $currentLine\n")
+                    Log.e("CodeOSS-Git", "> $currentLine")
+                    
+                    // Parse progress percentage
+                    // Examples: "Receiving objects:  11% (11/100)", "Resolving deltas:  50% (50/100)"
+                    val match = Regex("(\\d+)%").find(currentLine)
+                    if (match != null) {
+                        val percent = match.groupValues[1]
+                        val phase = if (currentLine.contains("Receiving")) "Receiving" else if (currentLine.contains("Resolving")) "Resolving" else "Cloning"
+                        _setupStatus.value = "$phase: $percent%"
+                    } else {
+                        _setupStatus.value = "Cloning: $currentLine"
+                    }
                 }
-                _setupStatus.value = "Ready"
+                
+                val exitCode = process.waitFor()
+                withContext(Dispatchers.Main) {
+                    if (exitCode == 0) {
+                        android.widget.Toast.makeText(getApplication(), "Clone Successful!", android.widget.Toast.LENGTH_LONG).show()
+                        refreshProjects()
+                        openProject(trimmedName)
+                    } else {
+                        projDir.deleteRecursively()
+                        android.widget.Toast.makeText(getApplication(), "Clone Failed (Exit $exitCode)", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                    _setupStatus.value = "Ready"
+                }
+            } catch (e: Exception) {
+                Log.e("CodeOSS", "Clone failed", e)
+                withContext(Dispatchers.Main) {
+                    projDir.deleteRecursively()
+                    android.widget.Toast.makeText(getApplication(), "Clone Error: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                    _setupStatus.value = "Ready"
+                }
             }
         }
     }
@@ -769,7 +1044,12 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 val newFile = java.io.File(file.parentFile, newName)
                 file.renameTo(newFile)
                 _activeProject.value?.let { refreshFileTree(java.io.File(projectsRoot, it)) }
-                if (_currentFile.value == file) _currentFile.value = newFile
+                
+                // Sync tabs
+                val updatedTabs = _openTabs.value.map {
+                    if (it.file == file) it.copy(file = newFile) else it
+                }
+                _openTabs.value = updatedTabs
             } catch (e: Exception) {
                 Log.e("CodeOSS", "Failed to rename file", e)
             }
@@ -781,7 +1061,14 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             try {
                 file.deleteRecursively()
                 _activeProject.value?.let { refreshFileTree(java.io.File(projectsRoot, it)) }
-                if (_currentFile.value == file) _currentFile.value = null
+                
+                // Close any tabs for this file
+                val index = _openTabs.value.indexOfFirst { it.file == file }
+                if (index != -1) {
+                    withContext(Dispatchers.Main) {
+                        closeTab(index)
+                    }
+                }
             } catch (e: Exception) {
                 Log.e("CodeOSS", "Failed to delete file", e)
             }
@@ -815,7 +1102,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val dir = if (file.isDirectory) file else file.parentFile ?: return
         togglePanel(true)
         viewModelScope.launch(Dispatchers.IO) {
-            _instances.value.getOrNull(_activeInstanceIndex.value)?.pty?.write("cd \"${dir.absolutePath}\"\n")
+            _instances.value.getOrNull(_activeInstanceIndex.value)?.sendInput("cd \"${dir.absolutePath}\"\n")
         }
     }
 
@@ -832,61 +1119,52 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     fun addNewTerminal() {
         val nextId = (_instances.value.maxByOrNull { it.id }?.id ?: 0) + 1
-        val pty = PtyBridge()
-        val instance = TerminalInstance(nextId, pty)
+        
+        val projDir = _activeProject.value?.let { java.io.File(projectsRoot, it) }
+        val cwd = projDir?.absolutePath ?: "/"
+        
+        val client = object : com.termux.terminal.TerminalSessionClient {
+            override fun onTextChanged(changedSession: com.termux.terminal.TerminalSession) {}
+            override fun onTitleChanged(changedSession: com.termux.terminal.TerminalSession) {}
+            override fun onSessionFinished(finishedSession: com.termux.terminal.TerminalSession) {}
+            override fun onCopyTextToClipboard(session: com.termux.terminal.TerminalSession, text: String) {}
+            override fun onPasteTextFromClipboard(session: com.termux.terminal.TerminalSession) {}
+            override fun onBell(session: com.termux.terminal.TerminalSession) {}
+            override fun onColorsChanged(session: com.termux.terminal.TerminalSession) {}
+            override fun onTerminalCursorStateChange(state: Boolean) {}
+            override fun getTerminalCursorStyle(): Int { return com.termux.terminal.TerminalEmulator.TERMINAL_CURSOR_STYLE_BLOCK }
+            override fun logError(tag: String, message: String) {}
+            override fun logWarn(tag: String, message: String) {}
+            override fun logInfo(tag: String, message: String) {}
+            override fun logDebug(tag: String, message: String) {}
+            override fun logVerbose(tag: String, message: String) {}
+            override fun logStackTraceWithMessage(tag: String, message: String, e: Exception) {}
+            override fun logStackTrace(tag: String, e: Exception) {}
+        }
+        
+        val context = getApplication<android.app.Application>().applicationContext
+        com.codeossandroid.bridge.PtyBridge().setupEnvironment(context)
+        
+        val binDir = context.filesDir.absolutePath
+        val libDir = context.applicationInfo.nativeLibraryDir
+        val newPath = "$binDir/bin:$binDir/usr/git-exec:/system/bin:/system/xbin:/vendor/bin"
+        val envPath = "$binDir/init.sh"
+        
+        val env = arrayOf(
+            "PATH=$newPath",
+            "TERM=xterm-256color",
+            "HOME=$cwd",
+            "APP_LIB_DIR=$libDir",
+            "GIT_EXEC_PATH=$libDir",
+            "ENV=$envPath"
+        )
+        val instance = TerminalInstance(nextId, "sh", cwd, arrayOf("-i", "-l"), env, client)
+        
         _instances.value = _instances.value + instance
         _activeInstanceIndex.value = _instances.value.size - 1
-        viewModelScope.launch(Dispatchers.IO) {
-            _setupStatus.value = "Starting Shell $nextId..."
-            val projDir = _activeProject.value?.let { java.io.File(projectsRoot, it) }
-            pty.startShell(getApplication<Application>().applicationContext, homeDir = projDir?.absolutePath)
-            
-            withContext(Dispatchers.Main) {
-                if (pty.getFd() != -1) {
-                    android.widget.Toast.makeText(getApplication(), "Shell $nextId Started", android.widget.Toast.LENGTH_SHORT).show()
-                } else {
-                    android.widget.Toast.makeText(getApplication(), "Failed to start Shell $nextId", android.widget.Toast.LENGTH_LONG).show()
-                }
-            }
-            val buffer = ByteArray(8192)
-            try {
-                while (true) {
-                    val read = pty.read(buffer)
-                    if (read > 0) {
-                        val text = String(buffer, 0, read)
-                        
-                        // Auto-Port Detection
-                        val portRegex = Regex("http://(?:localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0):(\\d+)")
-                        portRegex.findAll(text).forEach { match ->
-                            val port = match.groupValues[1].toIntOrNull()
-                            if (port != null && _activeTunnels.value.none { it.port == port }) {
-                                Log.d("CodeOSS", "Auto-detected port: $port")
-                                startTunnel(port)
-                                withContext(Dispatchers.Main) {
-                                    android.widget.Toast.makeText(getApplication(), "Auto-Forwarded Port $port", android.widget.Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        }
-
-                        withContext(Dispatchers.Main) { 
-                            instance.processOutput(text) 
-                        }
-                    } else if (read <= 0) {
-                        if (read == -1) {
-                            withContext(Dispatchers.Main) {
-                                instance.processOutput("\r\n[Process Exited]\r\n")
-                            }
-                        }
-                        break 
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("CodeOSS", "Terminal read error", e)
-                withContext(Dispatchers.Main) {
-                    instance.processOutput("\r\n[Terminal Error: ${e.message}]\r\n")
-                }
-            }
-        }
+        
+        _setupStatus.value = "Starting Shell $nextId..."
+        _isReady.value = true
     }
 
     fun switchTerminal(index: Int) { _activeInstanceIndex.value = index }
@@ -899,7 +1177,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     fun sendInput(data: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            _instances.value.getOrNull(_activeInstanceIndex.value)?.pty?.write(data)
+            _instances.value.getOrNull(_activeInstanceIndex.value)?.sendInput(data)
         }
     }
 

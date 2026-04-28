@@ -23,15 +23,20 @@ class PtyBridge {
     external fun createPty(shell: String, binPath: String, libPath: String, homePath: String, rows: Int, cols: Int): Int
     external fun setWindowSize(fd: Int, rows: Int, cols: Int)
 
-    fun startShell(context: android.content.Context, shell: String = "/system/bin/sh", homeDir: String? = null, rows: Int = 24, cols: Int = 80) {
+    fun setupEnvironment(context: android.content.Context) {
         val binFile = java.io.File(context.filesDir, "bin")
         if (binFile.exists()) binFile.deleteRecursively()
         binFile.mkdirs()
 
         val libPath = context.applicationInfo.nativeLibraryDir
         setupSymlinks(context, binFile.absolutePath, libPath)
+    }
+
+    fun startShell(context: android.content.Context, shell: String = "/system/bin/sh", homeDir: String? = null, rows: Int = 24, cols: Int = 80) {
+        setupEnvironment(context)
         
         val actualHome = homeDir ?: context.filesDir.absolutePath
+        val libPath = context.applicationInfo.nativeLibraryDir
         masterFd = createPty(shell, context.filesDir.absolutePath, libPath, actualHome, rows, cols)
         
         if (masterFd != -1) {
@@ -145,6 +150,17 @@ class PtyBridge {
         java.io.File(usrDir + "/lib").mkdirs()
         java.io.File(tmpDir).mkdirs()
         java.io.File(cacheDir).mkdirs()
+        
+        // Setup binary symlinks
+        try {
+            val ln = arrayOf("/system/bin/ln", "-sf")
+            Runtime.getRuntime().exec(ln + arrayOf("$nativeLibPath/libgit.so", "$usrBinDir/git")).waitFor()
+            Runtime.getRuntime().exec(ln + arrayOf("$nativeLibPath/libgit_remote_http.so", "$usrBinDir/git-remote-http")).waitFor()
+            Runtime.getRuntime().exec(ln + arrayOf("$nativeLibPath/libgit_remote_http.so", "$usrBinDir/git-remote-https")).waitFor()
+            Runtime.getRuntime().exec(ln + arrayOf("$nativeLibPath/libnode.so", "$usrBinDir/node")).waitFor()
+        } catch (e: Exception) {
+            Log.e("PtyBridge", "Failed to create symlinks", e)
+        }
 
         // 1. DNS Configs
         try {
@@ -212,14 +228,63 @@ class PtyBridge {
             # export ARES_SERVERS="8.8.8.8,8.8.4.4,1.1.1.1"
             export NATIVE_LIB_PATH="$nativeLibPath"
             
-            # Setup standard bin directory with symlinks to APK libraries
-            # This allows sub-processes (like npm scripts) to find 'node' and 'git'
-            mkdir -p "$usrBinDir"
+            # Use symlinks instead of functions where possible for better sub-process support
             ln -sf "$nativeLibPath/libnode.so" "$usrBinDir/node"
             ln -sf "$nativeLibPath/libgit.so" "$usrBinDir/git"
+            ln -sf "$nativeLibPath/libgit_remote_http.so" "$usrBinDir/git-remote-http"
+            ln -sf "$nativeLibPath/libgit_remote_http.so" "$usrBinDir/git-remote-https"
+            ln -sf "$nativeLibPath/libgit_remote_http.so" "$usrBinDir/git-remote-ftp"
+            ln -sf "$nativeLibPath/libgit_remote_http.so" "$usrBinDir/git-remote-ftps"
             
+            # THE SMART SHELL FIX: Mock /system/bin/sh behavior
+            # We create a 'sh' in our PATH that intercepts all execution calls.
+            # If a command has a broken node shebang, we fix it on the fly.
+            cat << 'EOF' > "$usrBinDir/sh"
+            #!/system/bin/sh
+            
+            if [ "$1" = "-c" ]; then
+                # Extract the first word (the actual command/script)
+                target_cmd=$(echo "$2" | awk '{print ${'$'}1}')
+                
+                # Use 'command -v' to find the full path of the command
+                full_path=$(PATH="$usrBinDir:${'$'}PATH" command -v "${'$'}target_cmd")
+                
+                if [ -n "${'$'}full_path" ] && [ -f "${'$'}full_path" ]; then
+                    # Peek at the shebang
+                    first_line=$(head -n 1 "${'$'}full_path")
+                    if echo "${'$'}first_line" | grep -qE "env node|bin/node"; then
+                        # It's a Node script! Run it with our node.
+                        shift 2
+                        # We reconstruct the rest of the arguments if any
+                        remaining_args=$(echo "$2" | cut -d' ' -f2-)
+                        if [ "${'$'}remaining_args" = "${'$'}target_cmd" ]; then remaining_args=""; fi
+                        exec "$usrBinDir/node" "${'$'}full_path" ${'$'}remaining_args
+                    fi
+                fi
+            fi
+            # Fallback to the real system shell
+            exec /system/bin/sh "${'$'}@"
+            EOF
+            chmod 755 "$usrBinDir/sh"
+
+            # Create the 'env' mock as well just in case
+            cat << 'EOF' > "$usrBinDir/env"
+            #!/system/bin/sh
+            if [ "$1" = "node" ]; then
+                shift
+                exec "$usrBinDir/node" "$@"
+            else
+                exec "$@"
+            fi
+            EOF
+            chmod 755 "$usrBinDir/env"
+
             export PATH="$usrBinDir:${'$'}PATH"
             export LD_LIBRARY_PATH="$nativeLibPath:$libLinksDir"
+            
+            # Force npm to use our smart shell
+            export SHELL="$usrBinDir/sh"
+            export NPM_CONFIG_SHELL="$usrBinDir/sh"
             
             # NPM Stability tweaks
             export NPM_CONFIG_MAXSOCKETS=2
