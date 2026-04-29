@@ -20,21 +20,31 @@ data class Extension(
     val downloadUrl: String,
     val isInstalled: Boolean = false,
     val versions: List<String> = emptyList(),
-    val screenshots: List<String> = emptyList()
+    val screenshots: List<String> = emptyList(),
+    val type: String = "extension", // "extension" or "npm"
+    val packageName: String? = null // For npm type
 )
 
 object ExtensionManager {
     private const val TAG = "ExtensionManager"
-    private const val GITHUB_REPO = "Zohaib8090/codeoss-android"
+    private const val GITHUB_REPO = "Zohaib8090/codeoss-andriod"
     private const val MARKETPLACE_PATH = "marketplace"
 
-    suspend fun scanMarketplace(context: Context): List<Extension> = withContext(Dispatchers.IO) {
+    suspend fun scanMarketplace(context: Context, token: String? = null, activeProject: String? = null): List<Extension> = withContext(Dispatchers.IO) {
         val extensions = mutableListOf<Extension>()
         try {
             val url = URL("https://api.github.com/repos/$GITHUB_REPO/contents/$MARKETPLACE_PATH")
             val connection = url.openConnection() as HttpURLConnection
             connection.setRequestProperty("User-Agent", "CodeOSS-Android-App")
-            if (connection.responseCode != 200) return@withContext emptyList()
+            if (token != null) {
+                connection.setRequestProperty("Authorization", "token $token")
+            }
+            Log.d(TAG, "Scanning Marketplace: $url")
+            Log.d(TAG, "Response Code: ${connection.responseCode}")
+            if (connection.responseCode != 200) {
+                Log.e(TAG, "Failed to scan marketplace: ${connection.responseCode}")
+                return@withContext emptyList()
+            }
             
             val response = connection.inputStream.bufferedReader().use { it.readText() }
             val items = JSONArray(response)
@@ -46,13 +56,26 @@ object ExtensionManager {
                     val metadata = fetchMetadata(name)
                     if (metadata != null) {
                         val id = metadata.getString("id")
-                        val installedDir = File(context.filesDir, "extensions/$id")
+                        val type = metadata.optString("type", "extension")
+                        val packageName = metadata.optString("packageName", null)
+                        
+                        val isInstalled = if (type == "npm" && packageName != null) {
+                            if (activeProject != null) {
+                                val projDir = File(File(context.filesDir, "projects"), activeProject)
+                                File(projDir, "node_modules/$packageName").exists()
+                            } else {
+                                false
+                            }
+                        } else {
+                            File(context.filesDir, "extensions/$id").exists()
+                        }
+
                         val versionsList = fetchVersions(name)
                         val screenshotsArray = metadata.optJSONArray("screenshots")
                         val screenshots = mutableListOf<String>()
                         if (screenshotsArray != null) {
-                            for (i in 0 until screenshotsArray.length()) {
-                                screenshots.add(screenshotsArray.getString(i))
+                            for (j in 0 until screenshotsArray.length()) {
+                                screenshots.add(screenshotsArray.getString(j))
                             }
                         }
 
@@ -64,9 +87,11 @@ object ExtensionManager {
                             author = metadata.optString("author", "Unknown"),
                             iconUrl = metadata.optString("icon", null),
                             downloadUrl = "https://github.com/$GITHUB_REPO/archive/refs/heads/main.zip",
-                            isInstalled = installedDir.exists(),
+                            isInstalled = isInstalled,
                             versions = versionsList,
-                            screenshots = screenshots
+                            screenshots = screenshots,
+                            type = type,
+                            packageName = packageName
                         ))
                     }
                 }
@@ -81,10 +106,15 @@ object ExtensionManager {
         return try {
             val url = URL("https://raw.githubusercontent.com/$GITHUB_REPO/main/$MARKETPLACE_PATH/$dirName/manifest.json")
             val connection = url.openConnection() as HttpURLConnection
-            if (connection.responseCode != 200) return null
+            connection.setRequestProperty("User-Agent", "CodeOSS-Android-App")
+            if (connection.responseCode != 200) {
+                Log.e(TAG, "Metadata fetch failed for $dirName: ${connection.responseCode}")
+                return null
+            }
             val response = connection.inputStream.bufferedReader().use { it.readText() }
             JSONObject(response)
         } catch (e: Exception) {
+            Log.e(TAG, "Metadata error for $dirName", e)
             null
         }
     }
@@ -92,7 +122,6 @@ object ExtensionManager {
     suspend fun installExtension(context: Context, extension: Extension, version: String? = null, onProgress: (Float) -> Unit): Boolean {
         return withContext(Dispatchers.IO) {
             try {
-                // If version is provided and different from "main", we might want to download a specific tag
                 val downloadUrl = if (version != null && version != "Latest") {
                     "https://github.com/$GITHUB_REPO/archive/refs/tags/$version.zip"
                 } else {

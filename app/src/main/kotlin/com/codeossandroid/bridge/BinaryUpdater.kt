@@ -58,9 +58,10 @@ object BinaryUpdater {
         targetDirName: String, // e.g. "binaries"
         onProgress: (Float, Long, Long) -> Unit // progress, downloaded, total
     ): Boolean = withContext(Dispatchers.IO) {
+        var connection: HttpURLConnection? = null
         try {
             val url = URL(urlStr)
-            val connection = url.openConnection() as HttpURLConnection
+            connection = url.openConnection() as HttpURLConnection
             connection.connect()
             
             if (connection.responseCode != HttpURLConnection.HTTP_OK) {
@@ -69,7 +70,7 @@ object BinaryUpdater {
             }
             
             val fileLength = connection.contentLength.toLong()
-            val input = BufferedInputStream(url.openStream())
+            val input = BufferedInputStream(connection.inputStream)
             val tempZip = File(context.cacheDir, "bin_update_${System.currentTimeMillis()}.zip")
             val output = FileOutputStream(tempZip)
             
@@ -98,6 +99,8 @@ object BinaryUpdater {
         } catch (e: Exception) {
             Log.e(TAG, "Download/Install failed: ${e.message}", e)
             false
+        } finally {
+            connection?.disconnect()
         }
     }
 }

@@ -18,19 +18,29 @@ object NativeLibLoader {
             val libDir = File(context.filesDir, "lib")
             if (!libDir.exists()) libDir.mkdirs()
 
-            // Also patch ALL libraries in the standard library directory
-            val nativeLibDir = context.applicationInfo.nativeLibraryDir
-            logFile.appendText("Processing all libs in $nativeLibDir...\n")
-            
-            File(nativeLibDir).listFiles { f -> f.name.contains(".so") }?.forEach { srcFile ->
-                val name = srcFile.name
-                logFile.appendText("Handling $name\n")
-                val dstFile = File(libDir, name)
-                srcFile.inputStream().use { input ->
-                    dstFile.outputStream().use { output ->
-                        input.copyTo(output)
+            // Only re-copy if APK version has changed
+            val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+            val versionStamp = "${packageInfo.versionName}_${packageInfo.longVersionCode}"
+            val stampFile = File(libDir, ".copy_stamp")
+            if (stampFile.exists() && stampFile.readText() == versionStamp) {
+                // Already copied for this version, skip expensive I/O
+                logFile.appendText("Libs already copied for $versionStamp, skipping\\n")
+            } else {
+                // Copy all native libraries
+                val nativeLibDir = context.applicationInfo.nativeLibraryDir
+                logFile.appendText("Processing all libs in $nativeLibDir...\\n")
+                
+                File(nativeLibDir).listFiles { f -> f.name.contains(".so") }?.forEach { srcFile ->
+                    val name = srcFile.name
+                    logFile.appendText("Handling $name\\n")
+                    val dstFile = File(libDir, name)
+                    srcFile.inputStream().use { input ->
+                        dstFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
                     }
                 }
+                stampFile.writeText(versionStamp)
             }
 
             val loadOrder = listOf(

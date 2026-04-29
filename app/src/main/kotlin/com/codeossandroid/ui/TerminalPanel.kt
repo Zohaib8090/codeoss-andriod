@@ -91,7 +91,8 @@ fun TerminalExtraKeys(viewModel: TerminalViewModel) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
             row1.forEach { key ->
                 TerminalKeyButton(
-                    text = if (key == "UP") "↑" else key,
+                    text = key,
+                    icon = if (key == "UP") Icons.Default.KeyboardArrowUp else null,
                     onClick = { viewModel.sendSpecialKey(key) },
                     uiScale = uiScale
                 )
@@ -106,12 +107,13 @@ fun TerminalExtraKeys(viewModel: TerminalViewModel) {
                     else -> false
                 }
                 TerminalKeyButton(
-                    text = when (key) {
-                        "TAB" -> "⇥"
-                        "LEFT" -> "←"
-                        "DOWN" -> "↓"
-                        "RIGHT" -> "→"
-                        else -> key
+                    text = key,
+                    icon = when (key) {
+                        "TAB" -> Icons.Default.KeyboardTab
+                        "LEFT" -> Icons.Default.KeyboardArrowLeft
+                        "DOWN" -> Icons.Default.KeyboardArrowDown
+                        "RIGHT" -> Icons.Default.KeyboardArrowRight
+                        else -> null
                     },
                     isActive = isActive,
                     onClick = {
@@ -131,6 +133,7 @@ fun TerminalExtraKeys(viewModel: TerminalViewModel) {
 @Composable
 fun TerminalKeyButton(
     text: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     isActive: Boolean = false,
     onClick: () -> Unit,
     uiScale: Float
@@ -143,15 +146,25 @@ fun TerminalKeyButton(
             .background(if (isActive) Color(0xFF58A6FF).copy(alpha = 0.3f) else Color.Transparent),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = text,
-            color = if (isActive) Color(0xFF58A6FF) else Color.White,
-            fontSize = (12 * uiScale).sp,
-            fontWeight = FontWeight.Medium,
-            fontFamily = FontFamily.Monospace
-        )
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = text,
+                tint = if (isActive) Color(0xFF58A6FF) else Color.White,
+                modifier = Modifier.size((18 * uiScale).dp)
+            )
+        } else {
+            Text(
+                text = text,
+                color = if (isActive) Color(0xFF58A6FF) else Color.White,
+                fontSize = (11 * uiScale).sp,
+                fontWeight = FontWeight.Medium,
+                fontFamily = FontFamily.Monospace
+            )
+        }
     }
 }
+
 
 @Composable
 fun ProblemsView(viewModel: TerminalViewModel) {

@@ -24,6 +24,7 @@
             android:exported="true"
             android:launchMode="singleTop"
             android:label="CodeOSS Android"
+            android:windowSoftInputMode="adjustResize"
             android:theme="@android:style/Theme.Material.NoActionBar">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

@@ -42,6 +42,14 @@ data class GitChange(
     val isStaged: Boolean
 )
 
+data class NpmPackage(
+    val name: String,
+    val version: String,
+    val description: String,
+    val author: String,
+    val date: String
+)
+
 data class ForwardedPort(val port: Int, val url: String, val process: Process)
 
 class TerminalViewModel(application: Application) : AndroidViewModel(application) {
@@ -53,6 +61,12 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     val isReady = _isReady.asStateFlow()
     private val _isCtrlActive = MutableStateFlow(false)
     val isCtrlActive = _isCtrlActive.asStateFlow()
+
+    private val _installingIds = MutableStateFlow<Set<String>>(emptySet())
+    val installingIds = _installingIds.asStateFlow()
+
+    private val _installingProgress = MutableStateFlow<Map<String, Float>>(emptyMap())
+    val installingProgress = _installingProgress.asStateFlow()
 
     fun toggleCtrl() { _isCtrlActive.value = !_isCtrlActive.value }
     fun setCtrl(active: Boolean) { _isCtrlActive.value = active }
@@ -149,6 +163,24 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     val uiScale = _uiScale.asStateFlow()
     private val _panelHeight = MutableStateFlow(250.dp)
     val panelHeight = _panelHeight.asStateFlow()
+
+    private val _disabledExtensions = MutableStateFlow(prefs.getStringSet("disabled_extensions", emptySet()) ?: emptySet())
+    val disabledExtensions = _disabledExtensions.asStateFlow()
+
+    fun toggleExtensionEnabled(id: String, enabled: Boolean) {
+        val current = _disabledExtensions.value.toMutableSet()
+        if (enabled) {
+            current.remove(id)
+        } else {
+            current.add(id)
+        }
+        _disabledExtensions.value = current
+        prefs.edit().putStringSet("disabled_extensions", current).apply()
+    }
+
+    fun isExtensionEnabled(id: String): Boolean {
+        return !_disabledExtensions.value.contains(id)
+    }
     private val _isPanelVisible = MutableStateFlow(true)
     val isPanelVisible = _isPanelVisible.asStateFlow()
     private val _autoScroll = MutableStateFlow(true)
@@ -171,6 +203,18 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     enum class SidebarMode { PROJECTS, EXPLORER, SEARCH, GIT, EXTENSIONS, MARKETPLACE, DEBUG, BROWSER, SETTINGS }
     private val _sidebarMode = MutableStateFlow(SidebarMode.EXPLORER)
     val sidebarMode = _sidebarMode.asStateFlow()
+
+    enum class MarketMode { EXTENSIONS, PACKAGES }
+    private val _marketMode = MutableStateFlow(MarketMode.EXTENSIONS)
+    val marketMode = _marketMode.asStateFlow()
+
+    fun setMarketMode(mode: MarketMode) { _marketMode.value = mode }
+
+    private val _npmResults = MutableStateFlow<List<NpmPackage>>(emptyList())
+    val npmResults = _npmResults.asStateFlow()
+
+    private val _isNpmSearching = MutableStateFlow(false)
+    val isNpmSearching = _isNpmSearching.asStateFlow()
     private val _searchQuery = MutableStateFlow("")
     val searchQuery = _searchQuery.asStateFlow()
 
@@ -206,11 +250,17 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     private fun checkUpdate() {
         viewModelScope.launch(Dispatchers.IO) {
+            var connection: java.net.HttpURLConnection? = null
             try {
-                val currentVersion = "1.0"
-                val url = java.net.URL("https://api.github.com/repos/Zohaib8090/codeoss-android/releases/latest")
-                val connection = url.openConnection() as java.net.HttpURLConnection
+                val context = getApplication<Application>()
+                val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+                val currentVersion = packageInfo.versionName ?: "1.0"
+                
+                val url = java.net.URL("https://api.github.com/repos/Zohaib8090/codeoss-andriod/releases/latest")
+                connection = url.openConnection() as java.net.HttpURLConnection
                 connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
+                connection.setRequestProperty("User-Agent", "CodeOSS-Android-App")
+                
                 val response = connection.inputStream.bufferedReader().use { it.readText() }
                 val json = JSONObject(response)
                 val latestTag = json.getString("tag_name").replace("v", "")
@@ -232,6 +282,8 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 }
             } catch (e: Exception) {
                 Log.e("CodeOSS", "Update check failed", e)
+            } finally {
+                connection?.disconnect()
             }
         }
     }
@@ -245,11 +297,14 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         _logcatOutput.value = currentList
     }
 
+    private var logcatProcess: Process? = null
+
     private fun startLogcatStream() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 Runtime.getRuntime().exec("logcat -c").waitFor()
                 val process = Runtime.getRuntime().exec("logcat -v time")
+                logcatProcess = process
                 val reader = process.inputStream.bufferedReader()
                 var line: String?
                 while (isActive) {
@@ -265,6 +320,9 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 }
             } catch (e: Exception) {
                 _logcatOutput.value = _logcatOutput.value + "Logcat stream error: ${e.message}"
+            } finally {
+                logcatProcess?.destroy()
+                logcatProcess = null
             }
         }
     }
@@ -277,7 +335,8 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val version: String,
         val iconUrl: String?,
         val downloadCount: Int,
-        val namespace: String
+        val namespace: String,
+        val versions: List<String> = emptyList()
     )
 
     private val _marketplaceExtensions = MutableStateFlow<List<MarketplaceExtension>>(emptyList())
@@ -289,7 +348,42 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     val activeExtensionDetail = _activeExtensionDetail.asStateFlow()
 
     fun setActiveExtensionDetail(extension: MarketplaceExtension?) {
-        _activeExtensionDetail.value = extension
+        if (extension == null) {
+            _activeExtensionDetail.value = null
+            return
+        }
+        
+        viewModelScope.launch(Dispatchers.IO) {
+            var connection: java.net.HttpURLConnection? = null
+            try {
+                val url = java.net.URL("https://open-vsx.org/api/${extension.namespace}/${extension.name}")
+                connection = url.openConnection() as java.net.HttpURLConnection
+                val text = connection.inputStream.bufferedReader().use { it.readText() }
+                val json = org.json.JSONObject(text)
+                val versionsObj = json.optJSONObject("allVersions")
+                val versionList = mutableListOf<String>()
+                if (versionsObj != null) {
+                    val keys = versionsObj.keys()
+                    while (keys.hasNext()) {
+                        versionList.add(keys.next())
+                    }
+                }
+                
+                withContext(Dispatchers.Main) {
+                    _activeExtensionDetail.value = extension.copy(versions = versionList.sortedDescending())
+                    _sidebarOpen.value = false
+                    _activeGithubExtensionDetail.value = null
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    _activeExtensionDetail.value = extension
+                    _sidebarOpen.value = false
+                    _activeGithubExtensionDetail.value = null
+                }
+            } finally {
+                connection?.disconnect()
+            }
+        }
     }
 
     fun searchExtensions(query: String) {
@@ -299,10 +393,11 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         }
         viewModelScope.launch(Dispatchers.IO) {
             _isSearchingExtensions.value = true
+            var connection: java.net.HttpURLConnection? = null
             try {
                 val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
                 val url = java.net.URL("https://open-vsx.org/api/-/search?text=$encodedQuery&size=50")
-                val connection = url.openConnection() as java.net.HttpURLConnection
+                connection = url.openConnection() as java.net.HttpURLConnection
                 connection.connectTimeout = 15000
                 connection.readTimeout = 15000
                 val text = connection.inputStream.bufferedReader().use { it.readText() }
@@ -340,6 +435,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 Log.e("CodeOSS", "Marketplace search failed", e)
             } finally {
                 _isSearchingExtensions.value = false
+                connection?.disconnect()
             }
         }
     }
@@ -376,7 +472,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     fun scanMarketplace() {
         viewModelScope.launch(Dispatchers.IO) {
             _isScanningMarketplace.value = true
-            val list = com.codeossandroid.bridge.ExtensionManager.scanMarketplace(getApplication())
+            val list = com.codeossandroid.bridge.ExtensionManager.scanMarketplace(getApplication(), _githubToken.value, _activeProject.value)
             _availableExtensions.value = list
             _isScanningMarketplace.value = false
         }
@@ -390,17 +486,134 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    private fun runNpm(vararg args: String): Process? {
+        val proj = _activeProject.value ?: return null
+        val projDir = java.io.File(projectsRoot, proj)
+        val filesDir = getApplication<Application>().filesDir.absolutePath
+        val nativeLibPath = getApplication<Application>().applicationInfo.nativeLibraryDir
+        val nodeBin = "$nativeLibPath/libnode.so"
+        val npmCli = "$filesDir/npm_pkg/bin/npm-cli.js"
+        val libLinksDir = java.io.File(filesDir, "lib").absolutePath
+        
+        val env = arrayOf(
+            "HOME=$filesDir",
+            "LD_LIBRARY_PATH=$nativeLibPath:$libLinksDir",
+            "NODE_PATH=.:$filesDir/npm_pkg/node_modules",
+            "PATH=$filesDir/bin:/system/bin:/system/xbin"
+        )
+        
+        return try {
+            Runtime.getRuntime().exec(arrayOf(nodeBin, npmCli) + args, env, projDir)
+        } catch (e: Exception) {
+            Log.e("CodeOSS", "NPM run failed: ${args.joinToString(" ")}", e)
+            null
+        }
+    }
+
     fun installGithubExtension(extension: com.codeossandroid.bridge.Extension, version: String? = null) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val success = com.codeossandroid.bridge.ExtensionManager.installExtension(getApplication(), extension, version) {
-                // Handle progress
+        val proj = _activeProject.value
+        if (proj == null) {
+            Log.w("CodeOSS", "Install aborted: No active project")
+            viewModelScope.launch(Dispatchers.Main) {
+                android.widget.Toast.makeText(getApplication(), "Please open a project first!", android.widget.Toast.LENGTH_LONG).show()
             }
-            if (success) {
-                scanMarketplace() // Refresh list
+            return
+        }
+
+        // Update state on Main thread for instant UI feedback
+        _installingIds.value = _installingIds.value + extension.id
+        _installingProgress.value = _installingProgress.value + (extension.id to 0f)
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                if (extension.type == "npm") {
+                    val pkgName = extension.packageName ?: extension.id
+                    val targetPkg = if (version != null && version != "Latest") "$pkgName@$version" else pkgName
+                    _binaryUpdateStatus.value = "Installing $targetPkg..."
+                    _isUpdatingBinaries.value = true
+                    
+                    try {
+                        val proc = runNpm("install", targetPkg)
+                        proc?.let { p ->
+                            val reader = p.inputStream.bufferedReader()
+                            var line: String?
+                            var simulatedProgress = 0.1f
+                            while (reader.readLine().also { line = it } != null) {
+                                Log.d("CodeOSS", "NPM Out: $line")
+                                val status = line?.take(40) ?: ""
+                                _binaryUpdateStatus.value = "NPM: $status"
+                                // Simulating progress for NPM since it doesn't give clean percentages
+                                simulatedProgress = (simulatedProgress + 0.05f).coerceAtMost(0.95f)
+                                _installingProgress.value = _installingProgress.value + (extension.id to simulatedProgress)
+                            }
+                            p.waitFor()
+                        }
+                    } finally {
+                        _isUpdatingBinaries.value = false
+                        _binaryUpdateStatus.value = "Ready"
+                    }
+                } else {
+                    com.codeossandroid.bridge.ExtensionManager.installExtension(getApplication(), extension, version) { progress ->
+                        _installingProgress.value = _installingProgress.value + (extension.id to progress)
+                    }
+                }
+                _installingProgress.value = _installingProgress.value + (extension.id to 1f)
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(getApplication(), "${extension.name} installed successfully!", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                scanMarketplace() // Refresh list to show installed state
+            } finally {
+                _installingIds.value = _installingIds.value - extension.id
+                // Delay clearing progress so user sees 100% for a moment
+                delay(1000)
+                _installingProgress.value = _installingProgress.value - extension.id
             }
         }
     }
 
+    fun installLocalExtension(uri: android.net.Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val context = getApplication<Application>()
+            try {
+                _binaryUpdateStatus.value = "Installing local extension..."
+                val inputStream = context.contentResolver.openInputStream(uri) ?: return@launch
+                val tempZip = java.io.File(context.cacheDir, "manual_ext.zip")
+                tempZip.outputStream().use { inputStream.copyTo(it) }
+                
+                // We'll extract the ID from the folder name inside the zip or ask for it?
+                // For now, let's just unzip it and refresh. 
+                // We assume the ZIP contains a folder with the extension ID.
+                val targetDir = java.io.File(context.filesDir, "extensions")
+                targetDir.mkdirs()
+                
+                java.util.zip.ZipInputStream(java.io.FileInputStream(tempZip)).use { zis ->
+                    var entry = zis.nextEntry
+                    while (entry != null) {
+                        val newFile = java.io.File(targetDir, entry.name)
+                        if (entry.isDirectory) {
+                            newFile.mkdirs()
+                        } else {
+                            newFile.parentFile?.mkdirs()
+                            newFile.outputStream().use { zis.copyTo(it) }
+                        }
+                        entry = zis.nextEntry
+                    }
+                }
+                
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "Local extension installed!", android.widget.Toast.LENGTH_SHORT).show()
+                    scanMarketplace()
+                }
+            } catch (e: Exception) {
+                Log.e("CodeOSS", "Local install failed", e)
+                withContext(Dispatchers.Main) {
+                    android.widget.Toast.makeText(context, "Install failed: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                }
+            } finally {
+                _binaryUpdateStatus.value = "Ready"
+            }
+        }
+    }
     private val _activeTunnels = MutableStateFlow<List<ForwardedPort>>(emptyList())
     val activeTunnels = _activeTunnels.asStateFlow()
 
@@ -421,7 +634,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     fun checkBinaryUpdates() {
         viewModelScope.launch(Dispatchers.IO) {
             _binaryUpdateStatus.value = "Checking..."
-            val registryUrl = "https://raw.githubusercontent.com/Zohaib8090/codeoss-android/main/binaries.json"
+            val registryUrl = "https://raw.githubusercontent.com/Zohaib8090/codeoss-andriod/main/binaries.json"
             try {
                 val update = com.codeossandroid.bridge.BinaryUpdater.checkUpdates(registryUrl)
                 if (update != null) {
@@ -445,7 +658,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             _isUpdatingBinaries.value = true
             try {
                 _binaryUpdateStatus.value = "Downloading Node.js..."
-                val registryUrl = "https://raw.githubusercontent.com/Zohaib8090/codeoss-android/main/binaries.json"
+                val registryUrl = "https://raw.githubusercontent.com/Zohaib8090/codeoss-andriod/main/binaries.json"
                 val update = com.codeossandroid.bridge.BinaryUpdater.checkUpdates(registryUrl) ?: return@launch
                 
                 val successNode = com.codeossandroid.bridge.BinaryUpdater.downloadAndInstall(getApplication(), update.nodeUrl, "usr") { p, d, t ->
@@ -567,12 +780,13 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val projDir = java.io.File(projectsRoot, proj)
         val nativeLibPath = getApplication<Application>().applicationInfo.nativeLibraryDir
         val gitBin = "$nativeLibPath/libgit.so"
+        val libLinksDir = java.io.File(getApplication<Application>().filesDir, "lib").absolutePath
         val env = arrayOf(
             "GIT_EXEC_PATH=$nativeLibPath",
             "GIT_TEMPLATE_DIR=${getApplication<Application>().filesDir}/git_templates",
             "GIT_CONFIG_NOSYSTEM=1",
             "HOME=${getApplication<Application>().filesDir}",
-            "LD_LIBRARY_PATH=$nativeLibPath"
+            "LD_LIBRARY_PATH=$nativeLibPath:$libLinksDir"
         )
         return try {
             Runtime.getRuntime().exec(arrayOf(gitBin) + args, env, projDir)
@@ -594,10 +808,17 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             }
             try {
                 val branchProc = runGit("rev-parse", "--abbrev-ref", "HEAD")
-                val branch = branchProc?.inputStream?.bufferedReader()?.readText()?.trim() ?: ""
+                val branch = branchProc?.let { proc ->
+                    try { proc.inputStream.bufferedReader().readText().trim() }
+                    finally { proc.inputStream.close(); proc.errorStream.close(); proc.destroy() }
+                } ?: ""
                 _gitBranch.value = if (branch.isEmpty()) "Detached" else branch
+
                 val statusProc = runGit("status", "--porcelain")
-                val statusLines = statusProc?.inputStream?.bufferedReader()?.readLines() ?: emptyList()
+                val statusLines = statusProc?.let { proc ->
+                    try { proc.inputStream.bufferedReader().readLines() }
+                    finally { proc.inputStream.close(); proc.errorStream.close(); proc.destroy() }
+                } ?: emptyList()
                 _gitChanges.value = statusLines.map { line ->
                     val stagedStatus = line.take(1)
                     val unstagedStatus = line.substring(1, 2)
@@ -606,24 +827,37 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     val status = if (isStaged) stagedStatus.trim() else unstagedStatus.trim()
                     GitChange(path, if (status.isEmpty()) stagedStatus.trim() else status, isStaged)
                 }
+
                 val branchesProc = runGit("branch", "-a")
-                val branches = branchesProc?.inputStream?.bufferedReader()?.readLines() ?: emptyList()
+                val branches = branchesProc?.let { proc ->
+                    try { proc.inputStream.bufferedReader().readLines() }
+                    finally { proc.inputStream.close(); proc.errorStream.close(); proc.destroy() }
+                } ?: emptyList()
                 _gitBranches.value = branches.mapNotNull { line ->
                     val clean = line.replace("*", "").trim()
                     if (clean.contains("HEAD ->")) null else clean
                 }.filter { it.isNotEmpty() }.distinct()
+
                 val logProc = runGit("log", "--pretty=format:%h|%s|%an|%ar", "--max-count=30")
-                val logLines = logProc?.inputStream?.bufferedReader()?.readLines() ?: emptyList()
+                val logLines = logProc?.let { proc ->
+                    try { proc.inputStream.bufferedReader().readLines() }
+                    finally { proc.inputStream.close(); proc.errorStream.close(); proc.destroy() }
+                } ?: emptyList()
                 _gitLog.value = logLines.mapNotNull { line ->
                     val parts = line.split("|")
                     if (parts.size >= 4) GitCommit(parts[0], parts[1], parts[2], parts[3]) else null
                 }
+
                 val remoteProc = runGit("remote", "get-url", "origin")
-                val remoteUrl = remoteProc?.inputStream?.bufferedReader()?.readText()?.trim() ?: ""
+                val remoteUrl = remoteProc?.let { proc ->
+                    try { proc.inputStream.bufferedReader().readText().trim() }
+                    finally { proc.inputStream.close(); proc.errorStream.close(); proc.destroy() }
+                } ?: ""
                 _gitRemoteUrl.value = if (remoteUrl.isEmpty()) "No Remote" else remoteUrl
             } catch (e: Exception) {
                 Log.e("CodeOSS", "Git refresh failed", e)
             }
+
         }
     }
 
@@ -776,14 +1010,15 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     fun runTask(name: String, command: String) {
         val proj = _activeProject.value ?: return
         val projDir = java.io.File(projectsRoot, proj)
-        _outputLogs.value += "\n>>> Running task: $name [$command]\n"
+        val maxLogSize = 50000
+        _outputLogs.value = (_outputLogs.value + "\n>>> Running task: $name [$command]\n").takeLast(maxLogSize)
         togglePanel(true)
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val proc = Runtime.getRuntime().exec(arrayOf("sh", "-c", command), null, projDir)
                 proc.inputStream.bufferedReader().useLines { lines ->
                     lines.forEach { line ->
-                        _outputLogs.value += line + "\n"
+                        _outputLogs.value = (_outputLogs.value + line + "\n").takeLast(maxLogSize)
                         parseProblem(line, projDir)
                     }
                 }
@@ -984,8 +1219,9 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     "clone", "--progress", authUrl, projDir.absolutePath
                 )
                 val env = pb.environment()
+                val libLinksDir = java.io.File(context.filesDir, "lib").absolutePath
                 env["PATH"] = "$usrBinDir:/system/bin:/system/xbin"
-                env["LD_LIBRARY_PATH"] = nativeLibPath
+                env["LD_LIBRARY_PATH"] = "$nativeLibPath:$libLinksDir"
                 env["HOME"] = filesDir
                 env["GIT_TEMPLATE_DIR"] = "$filesDir/git_templates"
                 env["GIT_CONFIG_NOSYSTEM"] = "1"
@@ -1209,7 +1445,9 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     fun removeTerminal(index: Int) {
         if (_instances.value.size > 1) {
             val newList = _instances.value.toMutableList()
-            newList.removeAt(index)
+            val removed = newList.removeAt(index)
+            try { removed.session.finishIfRunning() } catch (_: Exception) {}
+            removed.boundView = null
             _instances.value = newList
             _activeInstanceIndex.value = (_activeInstanceIndex.value).coerceAtMost(newList.size - 1)
         }
@@ -1342,5 +1580,65 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val clipboardManager = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
         clipboardManager.setPrimaryClip(android.content.ClipData.newPlainText("Terminal Logs", text))
         android.widget.Toast.makeText(context, "Logs copied to clipboard", android.widget.Toast.LENGTH_SHORT).show()
+    }
+
+    fun searchNpm(query: String) {
+        if (query.isEmpty()) {
+            _npmResults.value = emptyList()
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            _isNpmSearching.value = true
+            var connection: java.net.HttpURLConnection? = null
+            try {
+                val url = java.net.URL("https://registry.npmjs.org/-/v1/search?text=${java.net.URLEncoder.encode(query, "UTF-8")}&size=20")
+                connection = url.openConnection() as java.net.HttpURLConnection
+                connection.setRequestProperty("User-Agent", "CodeOSS-Android-App")
+                if (connection.responseCode == 200) {
+                    val response = connection.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(response)
+                    val objects = json.getJSONArray("objects")
+                    val results = mutableListOf<NpmPackage>()
+                    for (i in 0 until objects.length()) {
+                        val pkg = objects.getJSONObject(i).getJSONObject("package")
+                        results.add(NpmPackage(
+                            name = pkg.getString("name"),
+                            version = pkg.getString("version"),
+                            description = pkg.optString("description", "No description"),
+                            author = pkg.optJSONObject("author")?.optString("name") ?: pkg.optString("publisher", "Unknown"),
+                            date = pkg.optString("date", "")
+                        ))
+                    }
+                    _npmResults.value = results
+                }
+            } catch (e: Exception) {
+                Log.e("CodeOSS", "NPM Search failed", e)
+            } finally {
+                connection?.disconnect()
+                _isNpmSearching.value = false
+            }
+        }
+    }
+
+    fun installNpmPackage(packageName: String) {
+        runTask("NPM Install", "npm install $packageName")
+        _sidebarMode.value = SidebarMode.EXPLORER
+        _isPanelVisible.value = true
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        // Destroy logcat process
+        logcatProcess?.destroy()
+        logcatProcess = null
+        // Destroy all terminal sessions
+        _instances.value.forEach { instance ->
+            try { instance.session.finishIfRunning() } catch (_: Exception) {}
+        }
+        // Destroy all tunnel processes
+        _activeTunnels.value.forEach { tunnel ->
+            try { tunnel.process.destroy() } catch (_: Exception) {}
+        }
+        _activeTunnels.value = emptyList()
     }
 }
