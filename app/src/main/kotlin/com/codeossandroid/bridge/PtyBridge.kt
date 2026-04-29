@@ -232,9 +232,10 @@ class PtyBridge {
             export GIT_EXEC_PATH="$nativeLibPath"
             export NATIVE_LIB_PATH="$nativeLibPath"
             
-            # Universal Android Fixes (Restored from history)
-            export OPENSSL_CONF="/dev/null"
-            export RESOLV_CONF="$usrEtcDir/resolv.conf"
+            # Force Git to use HTTPS instead of SSH (Fixes Permission Denied errors)
+            git config --global url."https://github.com/".insteadOf "git@github.com:"
+            git config --global url."https://".insteadOf "ssh://"
+            git config --global core.autocrlf false
             
             # Vite & Node Stability + Universal DNS Monkey-Patch
             export CHOKIDAR_USEPOLLING=1
@@ -242,86 +243,82 @@ class PtyBridge {
             export NODE_OPTIONS="--require $usrEtcDir/dns-override.js --preserve-symlinks --preserve-symlinks-main"
             export NODE_PATH=".:${'$'}PWD/node_modules:$usrDir/lib/node_modules"
             
-            # Use symlinks instead of functions where possible for better sub-process support
-            ln -sf "$nativeLibPath/libnode.so" "$usrBinDir/node"
-            ln -sf "$nativeLibPath/libgit.so" "$usrBinDir/git"
-            ln -sf "$nativeLibPath/libgit_remote_http.so" "$usrBinDir/git-remote-http"
-            ln -sf "$nativeLibPath/libgit_remote_http.so" "$usrBinDir/git-remote-https"
-            ln -sf "$nativeLibPath/libgit_remote_http.so" "$usrBinDir/git-remote-ftp"
-            ln -sf "$nativeLibPath/libgit_remote_http.so" "$usrBinDir/git-remote-ftps"
+            # Remove existing symlinks if they exist so we don't try to overwrite read-only files
+            rm -f "$usrBinDir/node" "$usrBinDir/git" "$usrBinDir/git-remote-http" "$usrBinDir/git-remote-https"
+            
+            # Use shell wrappers instead of symlinks to force LD_LIBRARY_PATH and bypass linker namespace restrictions
+            cat << 'WRAPPER' > "$usrBinDir/node"
+            #!/system/bin/sh
+            export LD_LIBRARY_PATH="$nativeLibPath:$libLinksDir"
+            exec "$nativeLibPath/libnode.so" "${'$'}@"
+            WRAPPER
+            chmod 755 "$usrBinDir/node"
+
+            cat << 'WRAPPER' > "$usrBinDir/git"
+            #!/system/bin/sh
+            export LD_LIBRARY_PATH="$nativeLibPath:$libLinksDir"
+            exec "$nativeLibPath/libgit.so" "${'$'}@"
+            WRAPPER
+            chmod 755 "$usrBinDir/git"
+
+            cat << 'WRAPPER' > "$usrBinDir/git-remote-http"
+            #!/system/bin/sh
+            export LD_LIBRARY_PATH="$nativeLibPath:$libLinksDir"
+            exec "$nativeLibPath/libgit_remote_http.so" "${'$'}@"
+            WRAPPER
+            chmod 755 "$usrBinDir/git-remote-http"
+
+            cat << 'WRAPPER' > "$usrBinDir/git-remote-https"
+            #!/system/bin/sh
+            export LD_LIBRARY_PATH="$nativeLibPath:$libLinksDir"
+            exec "$nativeLibPath/libgit_remote_http.so" "${'$'}@"
+            WRAPPER
+            chmod 755 "$usrBinDir/git-remote-https"
             
             # THE SMART SHELL FIX: Mock /system/bin/sh behavior
-            # We create a 'sh' in our PATH that intercepts all execution calls.
-            # If a command has a broken node shebang, we fix it on the fly.
             cat << 'EOF' > "$usrBinDir/sh"
             #!/system/bin/sh
-            
             if [ "$1" = "-c" ]; then
-                # Extract the first word (the actual command/script)
                 target_cmd=$(echo "$2" | awk '{print ${'$'}1}')
-                
-                # Use 'command -v' to find the full path of the command
                 full_path=$(PATH="$usrBinDir:${'$'}PATH" command -v "${'$'}target_cmd")
-                
                 if [ -n "${'$'}full_path" ] && [ -f "${'$'}full_path" ]; then
-                    # Peek at the shebang
                     first_line=$(head -n 1 "${'$'}full_path")
                     if echo "${'$'}first_line" | grep -qE "env node|bin/node"; then
-                        # It's a Node script! Run it with our node.
                         shift 2
-                        # We reconstruct the rest of the arguments if any
                         remaining_args=$(echo "$2" | cut -d' ' -f2-)
                         if [ "${'$'}remaining_args" = "${'$'}target_cmd" ]; then remaining_args=""; fi
                         exec "$usrBinDir/node" "${'$'}full_path" ${'$'}remaining_args
                     fi
                 fi
             fi
-            # Fallback to the real system shell
             exec /system/bin/sh "${'$'}@"
             EOF
             chmod 755 "$usrBinDir/sh"
 
-            # Create the 'env' mock as well just in case
-            cat << 'EOF' > "$usrBinDir/env"
-            #!/system/bin/sh
-            if [ "$1" = "node" ]; then
-                shift
-                exec "$usrBinDir/node" "$@"
-            else
-                exec "$@"
-            fi
-            EOF
-            chmod 755 "$usrBinDir/env"
-
             export PATH="$usrBinDir:${'$'}PATH"
             export LD_LIBRARY_PATH="$nativeLibPath:$libLinksDir"
-            
-            # Force npm to use our smart shell
             export SHELL="$usrBinDir/sh"
             export NPM_CONFIG_SHELL="$usrBinDir/sh"
             
             # NPM Stability tweaks
             export NPM_CONFIG_MAXSOCKETS=2
-            export NPM_CONFIG_FETCH_RETRIES=5
-            export NPM_CONFIG_FETCH_RETRY_MINTIMEOUT=15000
-            export NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT=60000
             export NPM_CONFIG_REGISTRY="https://registry.npmjs.org/"
-            export NPM_CONFIG_SCRIPTS_PREPEND_NODE=true
             
-            # Use symlinks instead of functions where possible for better sub-process support
             node() { "$usrBinDir/node" "$@"; }
             git() { "$usrBinDir/git" "$@"; }
             
             # The "W^X" and Shebang fix: 
-            # 1. Makes binaries read-only (satisfies Android 10+ W^X policy)
-            # 2. Replaces broken .bin symlinks with shell wrappers (fixes missing /usr/bin/env)
             _npm_fix() {
                 if [ -d "node_modules" ]; then
                     echo "Applying Android Native Fixes..."
                     # Fix EACCES by making binaries read-only
                     find node_modules -type f -name "*" -executable -exec chmod 555 {} + 2>/dev/null || true
-                    find node_modules -type f -path "*/bin/*" -exec chmod 555 {} + 2>/dev/null || true
                     
+                    # Specific fix for esbuild (Vite)
+                    if [ -d "node_modules/esbuild" ]; then
+                        find node_modules/esbuild -name "esbuild" -exec chmod 555 {} + 2>/dev/null || true
+                    fi
+
                     # Fix Shebangs by converting .bin symlinks to wrappers
                     if [ -d "node_modules/.bin" ]; then
                         for bin in node_modules/.bin/*; do
@@ -349,8 +346,6 @@ class PtyBridge {
             }
             
             alias clear="printf '\033[2J\033[H'"
-            alias ll='ls -al'
-            
             cd() { 
                 builtin cd "$@" && export NODE_PATH=".:${'$'}PWD/node_modules:$usrDir/lib/node_modules"
             }
@@ -359,11 +354,10 @@ class PtyBridge {
             export NEXT_SWC_LOAD_WASM=1
             export NEXT_IGNORE_NATIVE_SWC=1
             
-            # Setup DNS (Google and Cloudflare)
-            echo "options no-aaaa" > "${'$'}RESOLV_CONF"
-            echo "nameserver 8.8.8.8" >> "${'$'}RESOLV_CONF"
-            echo "nameserver 8.8.4.4" >> "${'$'}RESOLV_CONF"
+            # Setup DNS
+            echo "nameserver 8.8.8.8" > "${'$'}RESOLV_CONF"
             echo "nameserver 1.1.1.1" >> "${'$'}RESOLV_CONF"
+
         """.trimIndent()
 
         try {

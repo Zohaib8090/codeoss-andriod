@@ -245,5 +245,19 @@ fun BrowserView(viewModel: TerminalViewModel) {
             },
             modifier = Modifier.fillMaxSize()
         )
+
+        DisposableEffect(Unit) {
+            onDispose {
+                webView?.apply {
+                    clearHistory()
+                    clearCache(true)
+                    loadUrl("about:blank")
+                    onPause()
+                    removeAllViews()
+                    destroy()
+                }
+                webView = null
+            }
+        }
     }
 }

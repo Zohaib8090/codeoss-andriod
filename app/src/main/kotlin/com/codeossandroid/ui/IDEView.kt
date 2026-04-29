@@ -51,7 +51,7 @@ fun IDEView(viewModel: TerminalViewModel) {
     val activeProject by viewModel.activeProject.collectAsState()
     var fullScreenImage by remember { mutableStateOf<String?>(null) }
 
-    Box(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+    Box(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
         Row(modifier = Modifier.fillMaxSize()) {
             ActivityBar(viewModel)
             BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxHeight()) {
@@ -213,7 +213,7 @@ fun ProjectSidebar(viewModel: TerminalViewModel) {
             TerminalViewModel.SidebarMode.GIT -> SourceControlContent(viewModel)
             TerminalViewModel.SidebarMode.SEARCH -> SearchContent(viewModel)
             TerminalViewModel.SidebarMode.EXTENSIONS -> ExtensionsContent(viewModel)
-            TerminalViewModel.SidebarMode.MARKETPLACE -> MarketplaceContent(viewModel)
+            TerminalViewModel.SidebarMode.MARKETPLACE -> MarketplaceView(viewModel)
             TerminalViewModel.SidebarMode.DEBUG -> DebugContent(viewModel)
             TerminalViewModel.SidebarMode.BROWSER -> Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                 Text("Web Preview Tools\n\nDebugger Bridge Active", color = Color.Gray, fontSize = (11 * uiScale).sp, fontFamily = FontFamily.Monospace)
@@ -284,12 +284,19 @@ fun DebugSection(title: String, uiScale: Float, content: @Composable () -> Unit)
 fun ExtensionsContent(viewModel: TerminalViewModel) {
     val uiScale by viewModel.uiScale.collectAsState()
     val marketplaceExtensions by viewModel.marketplaceExtensions.collectAsState()
+    val npmResults by viewModel.npmResults.collectAsState()
     val isSearching by viewModel.isSearchingExtensions.collectAsState()
+    val isNpmSearching by viewModel.isNpmSearching.collectAsState()
+    val marketMode by viewModel.marketMode.collectAsState()
     var searchQuery by remember { mutableStateOf("") }
 
-    LaunchedEffect(searchQuery) {
+    LaunchedEffect(searchQuery, marketMode) {
         if (searchQuery.length >= 2) {
-            viewModel.searchExtensions(searchQuery)
+            if (marketMode == TerminalViewModel.MarketMode.EXTENSIONS) {
+                viewModel.searchExtensions(searchQuery)
+            } else {
+                viewModel.searchNpm(searchQuery)
+            }
         }
     }
 
@@ -306,19 +313,20 @@ fun ExtensionsContent(viewModel: TerminalViewModel) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                "EXTENSIONS",
+                "MARKETPLACE",
                 color = Color.White.copy(alpha = 0.7f),
                 fontSize = (12 * uiScale).sp,
                 fontWeight = FontWeight.ExtraBold,
                 letterSpacing = 1.sp
             )
             Spacer(Modifier.weight(1f))
-            Icon(
-                Icons.Default.MoreVert,
-                null,
-                tint = Color.Gray,
-                modifier = Modifier.size((18 * uiScale).dp)
-            )
+            IconButton(onClick = { viewModel.setMarketMode(TerminalViewModel.MarketMode.EXTENSIONS) }, modifier = Modifier.size((24 * uiScale).dp)) {
+                Icon(Icons.Default.Extension, null, tint = if (marketMode == TerminalViewModel.MarketMode.EXTENSIONS) Color(0xFF58A6FF) else Color.Gray)
+            }
+            Spacer(Modifier.width(8.dp))
+            IconButton(onClick = { viewModel.setMarketMode(TerminalViewModel.MarketMode.PACKAGES) }, modifier = Modifier.size((24 * uiScale).dp)) {
+                Icon(Icons.Default.Layers, null, tint = if (marketMode == TerminalViewModel.MarketMode.PACKAGES) Color(0xFF58A6FF) else Color.Gray)
+            }
         }
 
         // Rebuilt Search Bar for Perfect Text Rendering
@@ -327,7 +335,7 @@ fun ExtensionsContent(viewModel: TerminalViewModel) {
             onValueChange = { searchQuery = it },
             placeholder = { 
                 Text(
-                    "Search Extensions in Marketplace", 
+                    if (marketMode == TerminalViewModel.MarketMode.EXTENSIONS) "Search Extensions..." else "Search NPM Packages...", 
                     fontSize = (13 * uiScale).sp, 
                     color = Color.Gray
                 ) 
@@ -373,38 +381,53 @@ fun ExtensionsContent(viewModel: TerminalViewModel) {
                         }
                     }
                 } else {
-                    if (marketplaceExtensions.isEmpty() && !isSearching) {
-                        item {
-                            Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                                Text(
-                                    "No extensions found for \"$searchQuery\"",
-                                    color = Color.Gray,
-                                    fontSize = (13 * uiScale).sp
+                    if (marketMode == TerminalViewModel.MarketMode.EXTENSIONS) {
+                        if (marketplaceExtensions.isEmpty() && !isSearching) {
+                            item {
+                                Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                                    Text("No extensions found for \"$searchQuery\"", color = Color.Gray, fontSize = (13 * uiScale).sp)
+                                }
+                            }
+                        } else {
+                            item { ExtensionSection("OPEN VSX MARKETPLACE", uiScale) { /* Header */ } }
+                            items(marketplaceExtensions) { ext ->
+                                ExtensionItem(
+                                    name = ext.displayName,
+                                    author = ext.publisher,
+                                    desc = ext.description,
+                                    version = ext.version,
+                                    iconUrl = ext.iconUrl,
+                                    downloads = ext.downloadCount,
+                                    uiScale = uiScale,
+                                    isEnabled = viewModel.isExtensionEnabled("${ext.namespace}.${ext.name}"),
+                                    onToggle = { 
+                                        val id = "${ext.namespace}.${ext.name}"
+                                        viewModel.toggleExtensionEnabled(id, !viewModel.isExtensionEnabled(id))
+                                    },
+                                    onDetailClick = { viewModel.setActiveExtensionDetail(ext) }
                                 )
                             }
                         }
                     } else {
-                        item {
-                            ExtensionSection("MARKETPLACE", uiScale) { /* Header only */ }
-                        }
-                        items(marketplaceExtensions) { ext ->
-                            ExtensionItem(
-                                name = ext.displayName,
-                                author = ext.publisher,
-                                desc = ext.description,
-                                version = ext.version,
-                                iconUrl = ext.iconUrl,
-                                downloads = ext.downloadCount,
-                                uiScale = uiScale,
-                                onDetailClick = { viewModel.setActiveExtensionDetail(ext) }
-                            )
+                        if (npmResults.isEmpty() && !isNpmSearching) {
+                            item {
+                                Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                                    Text("No NPM packages found for \"$searchQuery\"", color = Color.Gray, fontSize = (13 * uiScale).sp)
+                                }
+                            }
+                        } else {
+                            item { ExtensionSection("NPM REGISTRY", uiScale) { /* Header */ } }
+                            items(npmResults) { pkg ->
+                                NpmPackageItem(pkg, uiScale) {
+                                    viewModel.installNpmPackage(pkg.name)
+                                }
+                            }
                         }
                     }
                 }
             }
-
             // Search Progress Indicator
-            if (isSearching) {
+            if (isSearching || isNpmSearching) {
                 LinearProgressIndicator(
                     modifier = Modifier.fillMaxWidth().height(2.dp),
                     color = Color(0xFF58A6FF),
@@ -458,6 +481,8 @@ fun ExtensionItem(
     iconUrl: String?, 
     downloads: Int,
     uiScale: Float,
+    isEnabled: Boolean = true,
+    onToggle: () -> Unit = {},
     onDetailClick: () -> Unit = {}
 ) {
     var isHovered by remember { mutableStateOf(false) }
@@ -498,14 +523,26 @@ fun ExtensionItem(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        name, 
-                        color = Color(0xFF58A6FF), 
-                        fontSize = (14 * uiScale).sp, 
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            name, 
+                            color = Color(0xFF58A6FF), 
+                            fontSize = (14 * uiScale).sp, 
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                        if (!isEnabled) {
+                            Spacer(Modifier.width(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .background(Color(0xFFF85149).copy(alpha = 0.2f), androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                            ) {
+                                Text("DISABLED", color = Color(0xFFF85149), fontSize = (8 * uiScale).sp, fontWeight = FontWeight.ExtraBold)
+                            }
+                        }
+                    }
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(author, color = Color.Gray, fontSize = (11 * uiScale).sp)
                         Spacer(Modifier.width(8.dp))
@@ -515,18 +552,31 @@ fun ExtensionItem(
                     }
                 }
                 
-                // Premium Install Button
-                Button(
-                    onClick = { /* Install */ },
-                    modifier = Modifier.height((28 * uiScale).dp),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF238636),
-                        contentColor = Color.White
-                    ),
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
-                ) {
-                    Text("Install", fontSize = (11 * uiScale).sp, fontWeight = FontWeight.Bold)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = onToggle,
+                        modifier = Modifier.size((28 * uiScale).dp)
+                    ) {
+                        Icon(
+                            if (isEnabled) Icons.Default.CheckCircle else Icons.Default.Block,
+                            null,
+                            tint = if (isEnabled) Color(0xFF3FB950) else Color(0xFFF85149),
+                            modifier = Modifier.size((18 * uiScale).dp)
+                        )
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    Button(
+                        onClick = { /* Install */ },
+                        modifier = Modifier.height((28 * uiScale).dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF238636),
+                            contentColor = Color.White
+                        ),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
+                    ) {
+                        Text("Install", fontSize = (11 * uiScale).sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
             
@@ -548,6 +598,8 @@ fun ExtensionItem(
 @Composable
 fun ExtensionDetailView(extension: TerminalViewModel.MarketplaceExtension, viewModel: TerminalViewModel) {
     val uiScale by viewModel.uiScale.collectAsState()
+    var selectedVersion by remember(extension.name) { mutableStateOf(extension.version) }
+    var showVersionPicker by remember { mutableStateOf(false) }
     
     Column(modifier = Modifier.fillMaxSize().background(Color(0xFF0D1117)).verticalScroll(rememberScrollState())) {
         // Header with Close Button
@@ -584,17 +636,60 @@ fun ExtensionDetailView(extension: TerminalViewModel.MarketplaceExtension, viewM
             Column {
                 Text(extension.displayName, color = Color.White, fontSize = (28 * uiScale).sp, fontWeight = FontWeight.Bold)
                 Text(extension.publisher, color = Color(0xFF58A6FF), fontSize = (16 * uiScale).sp)
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(16.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Button(
-                        onClick = { /* Install */ },
+                        onClick = { /* Install logic with selectedVersion */ },
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF238636)),
                         shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
                     ) {
                         Text("Install", fontWeight = FontWeight.Bold)
                     }
+                    
                     Spacer(Modifier.width(12.dp))
-                    Text(extension.version, color = Color.Gray, fontSize = (14 * uiScale).sp)
+                    
+                    val isDisabled = !viewModel.isExtensionEnabled("${extension.namespace}.${extension.name}")
+                    OutlinedButton(
+                        onClick = { viewModel.toggleExtensionEnabled("${extension.namespace}.${extension.name}", isDisabled) },
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
+                        modifier = Modifier.height((36 * uiScale).dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = if (isDisabled) Color(0xFF238636) else Color(0xFFF85149)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, if (isDisabled) Color(0xFF238636) else Color(0xFFF85149))
+                    ) {
+                        Text(if (isDisabled) "Enable" else "Disable", fontSize = (12 * uiScale).sp)
+                    }
+
+                    Spacer(Modifier.width(12.dp))
+                    
+                    // Version Picker
+                    Box {
+                        OutlinedButton(
+                            onClick = { showVersionPicker = true },
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF30363D))
+                        ) {
+                            Text(selectedVersion, fontSize = (12 * uiScale).sp)
+                            Icon(Icons.Default.ArrowDropDown, null, modifier = Modifier.size((16 * uiScale).dp))
+                        }
+                        
+                        DropdownMenu(
+                            expanded = showVersionPicker,
+                            onDismissRequest = { showVersionPicker = false },
+                            modifier = Modifier.background(Color(0xFF161B22)).border(1.dp, Color(0xFF30363D))
+                        ) {
+                            val versions = extension.versions.ifEmpty { listOf(extension.version) }
+                            versions.forEach { version ->
+                                DropdownMenuItem(
+                                    text = { Text(version, color = Color.White) },
+                                    onClick = {
+                                        selectedVersion = version
+                                        showVersionPicker = false
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1045,7 +1140,12 @@ fun MarketplaceContent(viewModel: TerminalViewModel) {
                 }
             } else {
                 extensions.forEach { ext ->
-                    ExtensionItem(ext, uiScale) {
+                    ExtensionItem(
+                        extension = ext, 
+                        uiScale = uiScale, 
+                        isEnabled = viewModel.isExtensionEnabled(ext.id),
+                        onToggle = { viewModel.toggleExtensionEnabled(ext.id, !viewModel.isExtensionEnabled(ext.id)) }
+                    ) {
                         viewModel.selectGithubExtension(ext)
                     }
                 }
@@ -1122,11 +1222,12 @@ fun MarketplaceContent(viewModel: TerminalViewModel) {
 }
 
 @Composable
-fun ExtensionItem(extension: com.codeossandroid.bridge.Extension, uiScale: Float, onInstall: () -> Unit) {
+fun ExtensionItem(extension: com.codeossandroid.bridge.Extension, uiScale: Float, isEnabled: Boolean = true, onToggle: () -> Unit, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clickable { onClick() }
             .background(Color(0xFF161B22), androidx.compose.foundation.shape.RoundedCornerShape(8.dp))
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -1151,25 +1252,54 @@ fun ExtensionItem(extension: com.codeossandroid.bridge.Extension, uiScale: Float
         Spacer(Modifier.width(12.dp))
         
         Column(modifier = Modifier.weight(1f)) {
-            Text(extension.name, color = Color.White, fontSize = (13 * uiScale).sp, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(extension.name, color = Color.White, fontSize = (13 * uiScale).sp, fontWeight = FontWeight.Bold)
+                if (!isEnabled) {
+                    Spacer(Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .background(Color(0xFFF85149).copy(alpha = 0.2f), androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                    ) {
+                        Text("DISABLED", color = Color(0xFFF85149), fontSize = (8 * uiScale).sp, fontWeight = FontWeight.ExtraBold)
+                    }
+                }
+            }
             Text(extension.description, color = Color.Gray, fontSize = (10 * uiScale).sp, maxLines = 1)
             Text("By ${extension.author}", color = Color(0xFF58A6FF).copy(alpha = 0.7f), fontSize = (9 * uiScale).sp)
         }
         
         Spacer(Modifier.width(8.dp))
         
-        Button(
-            onClick = onInstall,
-            enabled = !extension.isInstalled,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = if (extension.isInstalled) Color.Transparent else Color(0xFF238636),
-                contentColor = if (extension.isInstalled) Color(0xFF3FB950) else Color.White
-            ),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-            modifier = Modifier.height((28 * uiScale).dp)
-        ) {
-            Text(if (extension.isInstalled) "Installed" else "Install", fontSize = (10 * uiScale).sp, fontWeight = FontWeight.Bold)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (extension.isInstalled) {
+                IconButton(
+                    onClick = onToggle,
+                    modifier = Modifier.size((28 * uiScale).dp)
+                ) {
+                    Icon(
+                        if (isEnabled) Icons.Default.CheckCircle else Icons.Default.Cancel,
+                        null,
+                        tint = if (isEnabled) Color(0xFF3FB950) else Color(0xFFF85149),
+                        modifier = Modifier.size((18 * uiScale).dp)
+                    )
+                }
+                Spacer(Modifier.width(4.dp))
+            }
+
+            Button(
+                onClick = onClick,
+                enabled = !extension.isInstalled,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (extension.isInstalled) Color.Transparent else Color(0xFF238636),
+                    contentColor = if (extension.isInstalled) Color(0xFF3FB950) else Color.White
+                ),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                modifier = Modifier.height((28 * uiScale).dp)
+            ) {
+                Text(if (extension.isInstalled) "Installed" else "Install", fontSize = (10 * uiScale).sp, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
@@ -1296,6 +1426,21 @@ fun GithubExtensionDetailView(
                     
                     Spacer(Modifier.width(12.dp))
                     
+                    if (extension.isInstalled) {
+                        val isDisabled = !viewModel.isExtensionEnabled(extension.id)
+                        OutlinedButton(
+                            onClick = { viewModel.toggleExtensionEnabled(extension.id, isDisabled) },
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+                            modifier = Modifier.height((36 * uiScale).dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = if (isDisabled) Color(0xFF238636) else Color(0xFFF85149)),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, if (isDisabled) Color(0xFF238636) else Color(0xFFF85149))
+                        ) {
+                            Text(if (isDisabled) "Enable" else "Disable", fontSize = (12 * uiScale).sp)
+                        }
+                        
+                        Spacer(Modifier.width(12.dp))
+                    }
+
                     // Version Selector
                     Box {
                         OutlinedButton(
@@ -1367,4 +1512,45 @@ fun GithubExtensionDetailView(
         InfoRowItem("Identifier", extension.id, uiScale)
         InfoRowItem("Repository", "GitHub", uiScale)
     }
+}@Composable
+fun NpmPackageItem(pkg: com.codeossandroid.viewmodel.NpmPackage, uiScale: Float, onInstall: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Box(
+            modifier = Modifier
+                .size((40 * uiScale).dp)
+                .background(Color(0xFF161B22), androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+                .border(1.dp, Color(0xFF30363D), shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Default.Layers, null, tint = Color(0xFFE3B341), modifier = Modifier.size((20 * uiScale).dp))
+        }
+        
+        Spacer(modifier = Modifier.width(16.dp))
+        
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(pkg.name, color = Color(0xFF58A6FF), fontSize = (14 * uiScale).sp, fontWeight = FontWeight.Bold, maxLines = 1)
+                    Text("v${pkg.version} • By ${pkg.author}", color = Color.Gray, fontSize = (11 * uiScale).sp)
+                }
+                Button(
+                    onClick = onInstall,
+                    modifier = Modifier.height((28 * uiScale).dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF238636)),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp)
+                ) {
+                    Text("Install", fontSize = (11 * uiScale).sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(pkg.description, color = Color.Gray, fontSize = (12 * uiScale).sp, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        }
+    }
+    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = Color(0xFF30363D).copy(alpha = 0.5f))
 }
