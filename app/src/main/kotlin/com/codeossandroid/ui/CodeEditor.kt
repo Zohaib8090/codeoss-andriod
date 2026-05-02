@@ -6,6 +6,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -31,6 +33,8 @@ fun CodeEditor(viewModel: TerminalViewModel, viewportId: Int = 0) {
     val uiScale by viewModel.uiScale.collectAsState()
     val focusedViewportId by viewModel.focusedViewportId.collectAsState()
     val isFocused = focusedViewportId == viewportId
+    val diagnostics by viewModel.lspDiagnostics.collectAsState()
+    val completionItems by viewModel.completionItems.collectAsState()
 
     if (activeTabIndex == -1 || openTabs.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0D1117)), contentAlignment = Alignment.Center) {
@@ -51,19 +55,20 @@ fun CodeEditor(viewModel: TerminalViewModel, viewportId: Int = 0) {
     }
 
     val activeTab = openTabs.getOrNull(activeTabIndex) ?: return
+    val errors = diagnostics.filter { (it.severity ?: 1) == 1 }
+    val warnings = diagnostics.filter { (it.severity ?: 1) == 2 }
 
     Column(modifier = Modifier.fillMaxSize().background(Color(0xFF0D1117))
         .clickable(
             interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
             indication = null
-        ) { 
-            viewModel.updateFocusedViewport(viewportId) 
-        }
+        ) { viewModel.updateFocusedViewport(viewportId) }
         .border(1.dp, if (isFocused) Color(0xFF58A6FF) else Color.Transparent)
     ) {
         // Tab Bar
         Row(
-            modifier = Modifier.fillMaxWidth().height((35 * uiScale).dp).background(Color(0xFF161B22)).horizontalScroll(rememberScrollState()),
+            modifier = Modifier.fillMaxWidth().height((35 * uiScale).dp)
+                .background(Color(0xFF161B22)).horizontalScroll(rememberScrollState()),
             verticalAlignment = Alignment.Bottom
         ) {
             openTabs.forEachIndexed { index, tab ->
@@ -100,13 +105,37 @@ fun CodeEditor(viewModel: TerminalViewModel, viewportId: Int = 0) {
             }
         }
 
-        // Toolbar for Split Actions
+        // Toolbar with LSP badges
         Row(
-            modifier = Modifier.fillMaxWidth().height((28 * uiScale).dp).background(Color(0xFF0D1117)).padding(horizontal = 8.dp),
+            modifier = Modifier.fillMaxWidth().height((28 * uiScale).dp)
+                .background(Color(0xFF0D1117)).padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(activeTab.file.path.substringAfter("projects/"), color = Color(0xFF8B949E), fontSize = (9 * uiScale).sp, fontFamily = FontFamily.Monospace)
+            Text(
+                activeTab.file.path.substringAfter("projects/"),
+                color = Color(0xFF8B949E),
+                fontSize = (9 * uiScale).sp,
+                fontFamily = FontFamily.Monospace
+            )
             Spacer(Modifier.weight(1f))
+
+            // Error badge
+            if (errors.isNotEmpty()) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 8.dp)) {
+                    Icon(Icons.Default.Error, null, tint = Color(0xFFF85149), modifier = Modifier.size((12 * uiScale).dp))
+                    Spacer(Modifier.width(2.dp))
+                    Text("${errors.size}", color = Color(0xFFF85149), fontSize = (10 * uiScale).sp, fontFamily = FontFamily.Monospace)
+                }
+            }
+            // Warning badge
+            if (warnings.isNotEmpty()) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 8.dp)) {
+                    Icon(Icons.Default.Warning, null, tint = Color(0xFFD29922), modifier = Modifier.size((12 * uiScale).dp))
+                    Spacer(Modifier.width(2.dp))
+                    Text("${warnings.size}", color = Color(0xFFD29922), fontSize = (10 * uiScale).sp, fontFamily = FontFamily.Monospace)
+                }
+            }
+
             IconButton(onClick = { viewModel.saveCurrentFile(viewportId) }, modifier = Modifier.size((24 * uiScale).dp)) {
                 Icon(Icons.Default.Save, null, tint = Color(0xFF58A6FF), modifier = Modifier.size((14 * uiScale).dp))
             }
@@ -125,8 +154,9 @@ fun CodeEditor(viewModel: TerminalViewModel, viewportId: Int = 0) {
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
             val scrollState = rememberScrollState()
             val lineCount = activeTab.text.text.count { it == '\n' } + 1
-            
+
             Row(modifier = Modifier.fillMaxSize().verticalScroll(scrollState)) {
+                // Line numbers
                 Column(
                     modifier = Modifier.width((40 * uiScale).dp).background(Color(0xFF0D1117)).padding(top = 8.dp),
                     horizontalAlignment = Alignment.End
@@ -158,6 +188,87 @@ fun CodeEditor(viewModel: TerminalViewModel, viewportId: Int = 0) {
                     visualTransformation = remember(extension) { SyntaxVisualTransformation(extension) },
                     keyboardOptions = KeyboardOptions(autoCorrect = false, imeAction = ImeAction.None)
                 )
+            }
+
+            // Floating autocomplete dropdown
+            if (completionItems.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = (48 * uiScale).dp, bottom = 4.dp)
+                        .background(Color(0xFF1C2128), androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+                        .border(1.dp, Color(0xFF30363D), androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+                        .heightIn(max = 200.dp)
+                        .widthIn(min = 200.dp, max = 320.dp)
+                ) {
+                    LazyColumn {
+                        items(completionItems) { item ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { viewModel.applyCompletion(viewportId, item) }
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Code, null, tint = Color(0xFF58A6FF), modifier = Modifier.size((14 * uiScale).dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(text = item.label, color = Color.White, fontSize = (12 * uiScale).sp, fontFamily = FontFamily.Monospace)
+                            }
+                            Divider(color = Color(0xFF30363D).copy(alpha = 0.5f))
+                        }
+                    }
+                }
+            }
+
+        }
+
+        // LSP Diagnostics panel — shown when issues exist
+        if (diagnostics.isNotEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 120.dp)
+                    .background(Color(0xFF0D1117))
+                    .border(1.dp, Color(0xFF30363D))
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().background(Color(0xFF161B22)).padding(horizontal = 8.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("PROBLEMS", color = Color.White.copy(alpha = 0.7f), fontSize = (10 * uiScale).sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(8.dp))
+                    if (errors.isNotEmpty()) {
+                        Text("${errors.size} errors", color = Color(0xFFF85149), fontSize = (10 * uiScale).sp)
+                        Spacer(Modifier.width(4.dp))
+                    }
+                    if (warnings.isNotEmpty()) {
+                        Text("${warnings.size} warnings", color = Color(0xFFD29922), fontSize = (10 * uiScale).sp)
+                    }
+                }
+                diagnostics.forEach { diag ->
+                    val isError = (diag.severity ?: 1) == 1
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            if (isError) Icons.Default.Error else Icons.Default.Warning,
+                            null,
+                            tint = if (isError) Color(0xFFF85149) else Color(0xFFD29922),
+                            modifier = Modifier.size((12 * uiScale).dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "[${diag.range.start.line + 1}:${diag.range.start.character + 1}] ${diag.message}",
+                            color = Color(0xFFCDD9E5),
+                            fontSize = (10 * uiScale).sp,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                    }
+                }
             }
         }
     }

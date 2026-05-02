@@ -47,6 +47,12 @@ Traditional "VS Code on Android" solutions rely on WebViews and local web server
 - [x] **Auto-Stash Switching**: Enabled seamless branch switching by automatically stashing/popping local changes.
 - [x] **Live Repository Info**: Added real-time branch detection and Remote URL display in the sidebar.
 
+### Phase 06: Marketplace & Extension Management [COMPLETED]
+- [x] **Dynamic GitHub-Driven Store**: Implemented real-time Marketplace fetching from the centralized repository, supporting both NPM and ZIP-based extensions.
+- [x] **Progressive UI**: Added live progress bars, instant UI feedback on the Main thread, and single-line compact headers.
+- [x] **Project-Aware State**: Smart detection of installed modules within the active project's `node_modules`.
+- [x] **Sideloading Fallback**: Allowed manual installation of local ZIP extensions for offline or non-authenticated users.
+
 ## Out of Scope
 - [ ] Web-based UI / WebView support (this is a pure native project).
 - [ ] Cloud sync (V1 focuses on 100% local operation).

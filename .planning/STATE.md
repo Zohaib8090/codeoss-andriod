@@ -3,48 +3,49 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Core Native Environment
 status: in_progress
-last_updated: "2026-04-25T17:08:00.000Z"
+last_updated: "2026-04-30T03:13:00.000Z"
 progress:
-  total_phases: 6
-  completed_phases: 4
-  total_plans: 8
-  completed_plans: 8
+  total_phases: 7
+  completed_phases: 5
+  total_plans: 9
+  completed_plans: 9
 ---
 
 # Project State — CodeOSS Android
 
 ## Current Milestone
 
-Milestone 1: Core Native Environment
+Milestone 1: Core Native
 
-## Active Phase
-
-Phase 4: Native Editor Polish & LSP Integration
+## Current Progress
+*   **Active Phase**: Phase 04 - Native Editor Polish & LSP Integration
+*   **Status**: In Progress
+*   **Recent Accomplishments**: 
+    *   Completed Phase 06 (Marketplace & Extension Management) out-of-order.
+    *   Built `LspClient` (JSON-RPC 2.0 streaming engine over standard I/O).
+    *   Bridged `TerminalViewModel` to background Node.js language servers.
+    *   Implemented `CodeEditor.kt` UI for real-time Diagnostics (error panels and badges) and Autocomplete dropdowns.
+*   **Next Steps**: 
+    *   Implement actual text-insertion logic for Autocomplete (`textDocument/completion` resolution).
+    *   Add red wavy underlines directly beneath the text via `SyntaxVisualTransformation`.
 
 ## Status Summary
 
-Phase 3.5 (Terminal Hardening & DNS) is **complete**. Key accomplishments:
-- **Bypassed Android 10+ Security**: Implemented a "Shell Function" approach in `init.sh` to execute `git` and `node` directly from `/lib` without using intermediate scripts (which are blocked by W^X policy).
-- **Resolved "Permission Denied"**: Verified that `git clone` and `npm` work natively on restricted Android 14+ devices.
-- **Universal DNS**: Node.js network lookups are monkey-patched to use public DNS servers (8.8.8.8) to ensure connectivity.
-- **Project Management UI**: Added Sidebar with project CRUD, ZIP Import/Export, and single file upload/download.
-
-### Critical Breakthrough — Shell Functions
-We discovered that Android 10+ prevents executing files in `/data/user/0/.../files` even with `chmod 777`. The solution was to define `git()` and `node()` as functions in the shell's `init.sh`:
-```bash
-git() { LD_LIBRARY_PATH="..." GIT_EXEC_PATH="..." /data/app/.../lib/arm64/libgit.so "$@"; }
-```
-This bypasses the disk-based execution block entirely.
+Phase 06 (Marketplace & Extension Management) is **complete**. Key accomplishments:
+- **Dynamic Marketplace**: Successfully connected the native app to the `Zohaib8090/codeoss-andriod` repository to fetch plugins.
+- **Progress Tracking**: Implemented real-time progress bars for NPM and ZIP installations directly on the UI thread.
+- **Project Awareness**: App correctly checks the active project's `node_modules` to determine if a package (like the Web LSP) is installed.
+- **Robust Sideloading**: Added manual ZIP installation support and fixed absolute paths for robust NPM execution via `ProcessBuilder`.
 
 ## Next Steps
 
-1. **Syntax Highlighting**: Implement a high-performance TextMate grammar parser using Kotlin and Skia.
-2. **LSP Integration**: Set up the JSON-RPC bridge between the native editor and Node.js-hosted language servers.
+1. **LSP Integration (Phase 4)**: Set up the JSON-RPC bridge between the native editor and the newly installed Node.js language servers (like the Web LSP).
+2. **Syntax Highlighting**: Implement a high-performance grammar parser using Kotlin and Skia.
 3. **Tabbed Editing**: Allow opening multiple files in a tabbed interface.
 
 ## Blockers
 
-- **None** — All major environment hurdles (DNS, Permissions, ZIP SAF) have been cleared.
+- **None** — The Marketplace and plugin ecosystem are fully operational.
 
 ---
-*Last updated: 2026-04-25 — Terminal Hardening Success*
+*Last updated: 2026-04-30 — Marketplace Complete*

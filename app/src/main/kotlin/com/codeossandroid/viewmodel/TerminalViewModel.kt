@@ -15,6 +15,9 @@ import com.codeossandroid.bridge.GitBridge
 import com.codeossandroid.bridge.PtyBridge
 import com.codeossandroid.bridge.ZipUtils
 import com.codeossandroid.model.TerminalInstance
+import com.codeossandroid.lsp.LspClient
+import com.codeossandroid.lsp.PublishDiagnosticsParams
+import com.codeossandroid.lsp.Diagnostic
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.mutableStateListOf
@@ -67,6 +70,158 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     private val _installingProgress = MutableStateFlow<Map<String, Float>>(emptyMap())
     val installingProgress = _installingProgress.asStateFlow()
+
+    // ── LSP State ─────────────────────────────────────────────────────────────
+    private val activeLSPs = mutableMapOf<String, LspClient>() // key = file extension
+    private val _lspDiagnostics = MutableStateFlow<List<Diagnostic>>(emptyList())
+    val lspDiagnostics = _lspDiagnostics.asStateFlow()
+    private val _completionItems = MutableStateFlow<List<com.codeossandroid.lsp.CompletionItem>>(emptyList())
+    val completionItems = _completionItems.asStateFlow()
+    private var lspDocVersion = 0
+
+    private fun getLanguageId(extension: String) = when (extension.lowercase()) {
+        "html", "htm" -> "html"
+        "css" -> "css"
+        "json" -> "json"
+        else -> null
+    }
+
+    private fun isLspSupported(extension: String) = getLanguageId(extension) != null
+
+    private fun startLsp(file: java.io.File) {
+        val ext = file.extension.lowercase()
+        val langId = getLanguageId(ext) ?: return
+        if (activeLSPs.containsKey(ext)) return // already running
+
+        val proj = _activeProject.value ?: return
+        val projDir = java.io.File(projectsRoot, proj)
+        val filesDir = getApplication<Application>().filesDir.absolutePath
+        val nativeLibPath = getApplication<Application>().applicationInfo.nativeLibraryDir
+        val libLinksDir = java.io.File(filesDir, "lib").absolutePath
+
+        // Check that the LSP binary exists (e.g. html-languageserver)
+        val lspBin = java.io.File(projDir, "node_modules/.bin/$langId-languageserver")
+        if (!lspBin.exists()) {
+            Log.w("CodeOSS", "LSP binary not found: ${lspBin.absolutePath}")
+            return
+        }
+
+        val nodeBin = java.io.File(filesDir, "usr/bin/node").absolutePath
+        val env = mapOf(
+            "HOME" to filesDir,
+            "USER" to "codeoss",
+            "TMPDIR" to java.io.File(filesDir, "tmp").apply { mkdirs() }.absolutePath,
+            "LD_LIBRARY_PATH" to "$nativeLibPath:$libLinksDir",
+            "NODE_PATH" to ".:$filesDir/npm_pkg/node_modules",
+            "PATH" to "$filesDir/usr/bin:$nativeLibPath:/system/bin:/system/xbin",
+            "OPENSSL_CONF" to "/dev/null"
+        )
+
+        // Execute via /system/bin/sh so the Termux wrapper script works perfectly
+        // and LD_LIBRARY_PATH is correctly passed to the libnode.so binary!
+        val client = LspClient(
+            command = listOf("/system/bin/sh", "-c", "exec '$nodeBin' '${lspBin.absolutePath}' --stdio"),
+            workingDir = projDir,
+            env = env
+        )
+
+        client.onDiagnosticsReceived = { params ->
+            viewModelScope.launch(Dispatchers.Main) {
+                _lspDiagnostics.value = params.diagnostics
+                Log.d("CodeOSS", "LSP Diagnostics: ${params.diagnostics.size} issues")
+            }
+        }
+
+        client.start()
+        activeLSPs[ext] = client
+
+        // Send initialize + didOpen
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val initParams = com.codeossandroid.lsp.InitializeParams(
+                    processId = android.os.Process.myPid(),
+                    rootUri = "file://${projDir.absolutePath}"
+                )
+                client.request("initialize", initParams)
+                client.notify("initialized", emptyMap<String, String>())
+
+                val text = file.readText()
+                val openParams = com.codeossandroid.lsp.DidOpenTextDocumentParams(
+                    textDocument = com.codeossandroid.lsp.TextDocumentItem(
+                        uri = "file://${file.absolutePath}",
+                        languageId = langId,
+                        version = ++lspDocVersion,
+                        text = text
+                    )
+                )
+                client.notify("textDocument/didOpen", openParams)
+                Log.d("CodeOSS", "LSP started and initialized for .$ext files")
+            } catch (e: Exception) {
+                Log.e("CodeOSS", "LSP initialization failed", e)
+            }
+        }
+    }
+
+    fun stopAllLsps() {
+        activeLSPs.values.forEach { it.stop() }
+        activeLSPs.clear()
+        _lspDiagnostics.value = emptyList()
+    }
+
+    fun requestCompletion(file: java.io.File, text: String, cursorOffset: Int) {
+        val ext = file.extension.lowercase()
+        val client = activeLSPs[ext] ?: return
+
+        var line = 0
+        var character = 0
+        var currentOffset = 0
+        val lines = text.split('\n')
+        for (i in lines.indices) {
+            val l = lines[i]
+            if (currentOffset + l.length + 1 > cursorOffset) {
+                line = i
+                character = cursorOffset - currentOffset
+                break
+            }
+            currentOffset += l.length + 1
+            line = i
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val params = com.codeossandroid.lsp.CompletionParams(
+                    textDocument = com.codeossandroid.lsp.TextDocumentIdentifier("file://${file.absolutePath}"),
+                    position = com.codeossandroid.lsp.Position(line, character)
+                )
+                val response = client.request("textDocument/completion", params)
+                if (response != null && response.has("result") && !response.get("result").isJsonNull) {
+                    val result = response.get("result")
+                    val items = mutableListOf<com.codeossandroid.lsp.CompletionItem>()
+                    val gson = com.google.gson.Gson()
+                    
+                    if (result.isJsonObject && result.asJsonObject.has("items")) {
+                        val list = gson.fromJson(result, com.codeossandroid.lsp.CompletionList::class.java)
+                        items.addAll(list.items)
+                    } else if (result.isJsonArray) {
+                        val arr = result.asJsonArray
+                        arr.forEach { 
+                            items.add(gson.fromJson(it, com.codeossandroid.lsp.CompletionItem::class.java))
+                        }
+                    }
+                    _completionItems.value = items
+                } else {
+                    _completionItems.value = emptyList()
+                }
+            } catch (e: Exception) {
+                Log.e("CodeOSS", "Completion request failed", e)
+                _completionItems.value = emptyList()
+            }
+        }
+    }
+
+    fun clearCompletions() {
+        _completionItems.value = emptyList()
+    }
 
     fun toggleCtrl() { _isCtrlActive.value = !_isCtrlActive.value }
     fun setCtrl(active: Boolean) { _isCtrlActive.value = active }
@@ -491,21 +646,29 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val projDir = java.io.File(projectsRoot, proj)
         val filesDir = getApplication<Application>().filesDir.absolutePath
         val nativeLibPath = getApplication<Application>().applicationInfo.nativeLibraryDir
-        val nodeBin = "$nativeLibPath/libnode.so"
-        val npmCli = "$filesDir/npm_pkg/bin/npm-cli.js"
+        val nodeBin = java.io.File(getApplication<Application>().filesDir, "bin/node").absolutePath
+        val npmCli = java.io.File(getApplication<Application>().filesDir, "npm_pkg/bin/npm-cli.js").absolutePath
         val libLinksDir = java.io.File(filesDir, "lib").absolutePath
         
-        val env = arrayOf(
-            "HOME=$filesDir",
-            "LD_LIBRARY_PATH=$nativeLibPath:$libLinksDir",
-            "NODE_PATH=.:$filesDir/npm_pkg/node_modules",
-            "PATH=$filesDir/bin:/system/bin:/system/xbin"
-        )
+        Log.d("CodeOSS", "NPM EXEC: node=$nodeBin npm=$npmCli cwd=${projDir.absolutePath}")
+        
+        val pb = ProcessBuilder(nodeBin, npmCli, *args)
+        pb.directory(projDir)
+        
+        val env = pb.environment()
+        env["HOME"] = filesDir
+        env["USER"] = "codeoss"
+        env["TMPDIR"] = java.io.File(filesDir, "tmp").apply { mkdirs() }.absolutePath
+        env["LD_LIBRARY_PATH"] = "$nativeLibPath:$libLinksDir"
+        env["NODE_PATH"] = ".:$filesDir/npm_pkg/node_modules"
+        env["PATH"] = "$filesDir/bin:$nativeLibPath:/system/bin:/system/xbin"
+        
+        pb.redirectErrorStream(true)
         
         return try {
-            Runtime.getRuntime().exec(arrayOf(nodeBin, npmCli) + args, env, projDir)
+            pb.start()
         } catch (e: Exception) {
-            Log.e("CodeOSS", "NPM run failed: ${args.joinToString(" ")}", e)
+            Log.e("CodeOSS", "NPM start failed", e)
             null
         }
     }
@@ -1081,6 +1244,8 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val existingIndex = _openTabs.value.indexOfFirst { it.file.absolutePath == file.absolutePath }
         if (existingIndex != -1) {
             switchTab(vid, existingIndex)
+            // Notify LSP of focus change
+            if (isLspSupported(file.extension)) startLsp(file)
             return
         }
         viewModelScope.launch(Dispatchers.IO) {
@@ -1090,6 +1255,8 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     val newTab = EditorTab(file, TextFieldValue(content, TextRange(0)))
                     _openTabs.value = _openTabs.value + newTab
                     switchTab(vid, _openTabs.value.size - 1)
+                    // Start LSP for supported file types
+                    if (isLspSupported(file.extension)) startLsp(file)
                 }
             } catch (e: Exception) {
                 Log.e("CodeOSS", "Failed to read file", e)
@@ -1145,6 +1312,64 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         if (tabIndex in currentTabs.indices) {
             currentTabs[tabIndex] = currentTabs[tabIndex].copy(text = value, isModified = true)
             _openTabs.value = currentTabs
+            // Notify LSP of text change
+            val file = currentTabs[tabIndex].file
+            val ext = file.extension.lowercase()
+            activeLSPs[ext]?.let { client ->
+                viewModelScope.launch(Dispatchers.IO) {
+                    val changeParams = com.codeossandroid.lsp.DidChangeTextDocumentParams(
+                        textDocument = com.codeossandroid.lsp.VersionedTextDocumentIdentifier(
+                            uri = "file://${file.absolutePath}",
+                            version = ++lspDocVersion
+                        ),
+                        contentChanges = listOf(
+                            com.codeossandroid.lsp.TextDocumentContentChangeEvent(text = value.text)
+                        )
+                    )
+                    client.notify("textDocument/didChange", changeParams)
+                }
+                
+                // Trigger autocomplete request
+                requestCompletion(file, value.text, value.selection.start)
+            }
+        }
+    }
+
+    fun applyCompletion(viewportId: Int, item: com.codeossandroid.lsp.CompletionItem) {
+        val tabIndex = _activeTabIndices.value[viewportId] ?: return
+        val currentTabs = _openTabs.value.toMutableList()
+        if (tabIndex in currentTabs.indices) {
+            val tab = currentTabs[tabIndex]
+            val currentText = tab.text.text
+            val cursorOffset = tab.text.selection.start
+            
+            // Simple insertion at cursor
+            val insertText = item.insertText ?: item.label
+            val newText = currentText.substring(0, cursorOffset) + insertText + currentText.substring(cursorOffset)
+            val newCursor = cursorOffset + insertText.length
+            
+            val newValue = TextFieldValue(newText, TextRange(newCursor))
+            currentTabs[tabIndex] = tab.copy(text = newValue, isModified = true)
+            _openTabs.value = currentTabs
+            
+            _completionItems.value = emptyList() // Clear completions
+            
+            val file = tab.file
+            val ext = file.extension.lowercase()
+            activeLSPs[ext]?.let { client ->
+                viewModelScope.launch(Dispatchers.IO) {
+                    val changeParams = com.codeossandroid.lsp.DidChangeTextDocumentParams(
+                        textDocument = com.codeossandroid.lsp.VersionedTextDocumentIdentifier(
+                            uri = "file://${file.absolutePath}",
+                            version = ++lspDocVersion
+                        ),
+                        contentChanges = listOf(
+                            com.codeossandroid.lsp.TextDocumentContentChangeEvent(text = newText)
+                        )
+                    )
+                    client.notify("textDocument/didChange", changeParams)
+                }
+            }
         }
     }
 

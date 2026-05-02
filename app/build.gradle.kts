@@ -99,4 +99,7 @@ dependencies {
 
     // Coil for Image Loading (Extension Icons)
     implementation("io.coil-kt:coil-compose:2.6.0")
+
+    // Gson for LSP JSON-RPC serialization
+    implementation("com.google.code.gson:gson:2.10.1")
 }
