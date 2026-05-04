@@ -54,3 +54,4 @@ log.txt
 scripts/*.sh
 !scripts/
 !app/src/main/jniLibs/
+.helm-diag/
