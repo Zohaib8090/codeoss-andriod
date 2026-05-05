@@ -258,9 +258,12 @@ class PtyBridge {
                 const proxyCache = new WeakMap();
                 Module._load = function(request) {
                     const result = originalLoad.apply(this, arguments);
-                    // Only target SWC and turbopack native binaries — NOT 'next' (too broad, breaks semver)
-                    const isSwcOrTurbo = request.includes('swc') || request.includes('turbopack');
-                    if (isSwcOrTurbo) {
+                    // Only intercept actual native binary .node files (e.g. next-swc.linux-arm64-gnu.node)
+                    // DO NOT intercept JS loaders like next-swc-loader.js — breaks webpack this.async API
+                    const isNativeBinary = request.endsWith('.node') ||
+                        (request.includes('@next/swc') && !request.endsWith('.js')) ||
+                        (request.includes('turbopack') && request.endsWith('.node'));
+                    if (isNativeBinary) {
                         if (result && (typeof result === 'object' || typeof result === 'function')) {
                             if (proxyCache.has(result)) return proxyCache.get(result);
                             try {
@@ -463,8 +466,11 @@ class PtyBridge {
             export NEXT_TELEMETRY_DISABLED=1
             export CHOKIDAR_USEPOLLING=true
             export WATCHPACK_POLLING=true
+            export WATCHPACK_POLLING_INTERVAL=500
 
             if [ "${'$'}has_dev_or_build" = "true" ]; then
+                # Clear corrupted webpack cache before every dev/build start
+                rm -rf "${'$'}PWD/.next/cache"
                 exec "$usrBinDir/node" "${'$'}PWD/node_modules/next/dist/bin/next" "${'$'}@" --webpack
             else
                 exec "$usrBinDir/node" "${'$'}PWD/node_modules/next/dist/bin/next" "${'$'}@"
