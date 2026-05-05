@@ -179,8 +179,11 @@ class PtyBridge {
                 const dns = require('dns');
                 const net = require('net');
                 const { Resolver } = dns;
+                const promises = dns.promises;
                 const resolver = new Resolver();
                 resolver.setServers(['8.8.8.8', '8.8.4.4', '1.1.1.1']);
+
+                
                 const origLookup = dns.lookup;
                 dns.lookup = function(hostname, options, callback) {
                   if (typeof options === 'function') { callback = options; options = {}; }
@@ -188,7 +191,7 @@ class PtyBridge {
                   const family = (options && options.family) || 0;
                   const all = (options && options.all) || false;
                   
-                  if (hostname === 'localhost') {
+                  if (!hostname || hostname === 'localhost') {
                     const res = all ? [{address: '127.0.0.1', family: 4}] : '127.0.0.1';
                     return process.nextTick(() => callback(null, res, 4));
                   }
@@ -198,18 +201,87 @@ class PtyBridge {
                     const res = all ? [{address: hostname, family: ipFamily}] : hostname;
                     return process.nextTick(() => callback(null, res, ipFamily));
                   }
-                  const resolve = (family === 6) ? 'resolve6' : 'resolve4';
-                  resolver[resolve](hostname, (err, addresses) => {
+                  
+                  const resolveMethod = (family === 6) ? 'resolve6' : 'resolve4';
+                  resolver[resolveMethod](hostname, (err, addresses) => {
                     if (err || !addresses || addresses.length === 0) {
-                      if (all) return callback(err || new Error('ENOTFOUND'), []);
-                      return callback(err || new Error('ENOTFOUND'), null, 0);
+                      if (family === 0 && resolveMethod === 'resolve4') {
+                        return resolver.resolve6(hostname, (err6, addresses6) => {
+                          if (err6) return origLookup(hostname, options, callback);
+                          finish(addresses6, 6);
+                        });
+                      }
+                      return origLookup(hostname, options, callback);
                     }
+                    finish(addresses, family === 6 ? 6 : 4);
+                  });
+                  
+                  function finish(addresses, detectedFamily) {
                     if (all) {
-                      const res = addresses.map(a => ({address: a, family: (family === 6 ? 6 : 4)}));
+                      const res = addresses.map(a => ({address: a, family: detectedFamily}));
                       return callback(null, res);
                     }
-                    callback(null, addresses[0], (family === 6 ? 6 : 4));
-                  });
+                    callback(null, addresses[0], detectedFamily);
+                  }
+                };
+                
+                if (promises && promises.lookup) {
+                  promises.lookup = function(hostname, options) {
+                    return new Promise((resolve, reject) => {
+                      dns.lookup(hostname, options, (err, address, family) => {
+                        if (err) return reject(err);
+                        if (options && options.all) resolve(address);
+                        else resolve({ address, family });
+                      });
+                    });
+                  };
+                }
+                
+                dns.resolve4 = (hostname, callback) => resolver.resolve4(hostname, callback);
+                dns.resolve6 = (hostname, callback) => resolver.resolve6(hostname, callback);
+                if (promises) {
+                  promises.resolve4 = (hostname) => new Promise((resolve, reject) => resolver.resolve4(hostname, (err, addr) => err ? reject(err) : resolve(addr)));
+                  promises.resolve6 = (hostname) => new Promise((resolve, reject) => resolver.resolve6(hostname, (err, addr) => err ? reject(err) : resolve(addr)));
+                }
+                
+                // --- SWC / Next.js Android Native Fixes ---
+                const Module = require('module');
+                const originalLoad = Module._load;
+                const proxyCache = new WeakMap();
+                Module._load = function(request) {
+                    const result = originalLoad.apply(this, arguments);
+                    if (request.includes('swc') || request.includes('turbopack')) {
+                        if (result && (typeof result === 'object' || typeof result === 'function')) {
+                            if (proxyCache.has(result)) return proxyCache.get(result);
+                            try {
+                                if (!('lockfileTryAcquireSync' in result)) {
+                                    const proxy = new Proxy(result, {
+                                        get(target, prop) {
+                                            if (prop === 'lockfileTryAcquireSync') return function() { return true; };
+                                            if (prop === 'lockfileReleaseSync') return function() { return true; };
+                                            if (prop === 'lockfileUnlockSync') return function() { return true; };
+                                            return target[prop];
+                                        },
+                                        has(target, prop) {
+                                            if (prop === 'lockfileTryAcquireSync' || prop === 'lockfileReleaseSync' || prop === 'lockfileUnlockSync') return true;
+                                            return prop in target;
+                                        },
+                                        getOwnPropertyDescriptor(target, prop) {
+                                            if (prop === 'lockfileTryAcquireSync' || prop === 'lockfileReleaseSync' || prop === 'lockfileUnlockSync') {
+                                                return { configurable: true, enumerable: true, value: function() { return true; }, writable: true };
+                                            }
+                                            return Reflect.getOwnPropertyDescriptor(target, prop);
+                                        }
+                                    });
+                                    proxyCache.set(result, proxy);
+                                    return proxy;
+                                }
+                            } catch (e) {
+                                // Ignore
+                            }
+                        }
+                    }
+                    return result;
                 };
             """.trimIndent()
             java.io.FileOutputStream(dnsOverride).use { it.write(dnsContent.toByteArray()) }
@@ -242,6 +314,7 @@ class PtyBridge {
             export WATCHPACK_POLLING=true
             export NODE_OPTIONS="--require $usrEtcDir/dns-override.js --preserve-symlinks --preserve-symlinks-main"
             export NODE_PATH=".:${'$'}PWD/node_modules:$usrDir/lib/node_modules"
+            export NEXT_TELEMETRY_DISABLED=1
             
             # Remove existing symlinks if they exist so we don't try to overwrite read-only files
             rm -f "$usrBinDir/node" "$usrBinDir/git" "$usrBinDir/git-remote-http" "$usrBinDir/git-remote-https"
@@ -319,23 +392,68 @@ class PtyBridge {
                         find node_modules/esbuild -name "esbuild" -exec chmod 555 {} + 2>/dev/null || true
                     fi
 
-                    # Fix Shebangs by converting .bin symlinks to wrappers
-                    if [ -d "node_modules/.bin" ]; then
-                        for bin in node_modules/.bin/*; do
-                            if [ -L "${'$'}bin" ]; then
-                                target=${'$'}(readlink -f "${'$'}bin")
-                                if head -n 1 "${'$'}target" | grep -q "node"; then
-                                    rm "${'$'}bin"
-                                    echo "#!/system/bin/sh" > "${'$'}bin"
-                                    echo "exec \"$usrBinDir/node\" \"${'$'}target\" \"\$@\"" >> "${'$'}bin"
-                                    chmod 755 "${'$'}bin"
-                                fi
-                            fi
+                    # Specific fix for SWC (Next.js)
+                    # Next.js on Android detects platform as "android/arm64" (not linux/arm64)
+                    # so it looks for @next/swc-android-arm64 package first.
+                    # Specific fix for SWC (Next.js)
+                    if [ -d "node_modules/@next" ]; then
+                        # Read the actual Next.js version robustly (disable NODE_OPTIONS so dns patch doesn't spam stdout)
+                        NEXT_VER=$( env NODE_OPTIONS="" "$usrBinDir/node" -e "try{process.stdout.write(require('./node_modules/next/package.json').version)}catch(e){try{process.stdout.write(require('next/package.json').version)}catch(ee){process.stdout.write('16.1.6')}}" 2>/dev/null )
+
+                        # Link ALL available SWC bindings
+                        SWC_ANDROID_DIR="node_modules/@next/swc-android-arm64"
+                        mkdir -p "${'$'}SWC_ANDROID_DIR"
+                        
+                        echo "Linking Native SWC Binaries for Next.js ${'$'}NEXT_VER..."
+                        for lib in "${'$'}NATIVE_LIB_PATH"/libbinding_*.so; do
+                            [ -f "${'$'}lib" ] || continue
+                            libname=$(basename "${'$'}lib" .so | sed 's/lib//')
+                            
+                            case "${'$'}libname" in
+                                "binding_core_node") target="next-swc.android-arm64.node" ;;
+                                "binding_html_node") target="next-swc.android-arm64-html.node" ;;
+                                "binding_minifier_node") target="next-swc.android-arm64-minifier.node" ;;
+                                "binding_react_compiler_node") target="next-swc.android-arm64-react-compiler.node" ;;
+                                *) target="next-swc.android-arm64-${'$'}libname.node" ;;
+                            esac
+                            
+                            ln -sf "${'$'}lib" "${'$'}SWC_ANDROID_DIR/${'$'}target"
                         done
+                        
+                        printf '{"name":"@next/swc-android-arm64","version":"%s","main":"next-swc.android-arm64.node"}' "${'$'}NEXT_VER" > "${'$'}SWC_ANDROID_DIR/package.json"
+
+                        # Fallback for older Next.js versions that look for linux-arm64-gnu
+                        SWC_LINUX_DIR="node_modules/@next/swc-linux-arm64-gnu"
+                        mkdir -p "${'$'}SWC_LINUX_DIR"
+                        [ -f "${'$'}NATIVE_LIB_PATH/libbinding_core_node.so" ] && ln -sf "${'$'}NATIVE_LIB_PATH/libbinding_core_node.so" "${'$'}SWC_LINUX_DIR/next-swc.linux-arm64-gnu.node"
+                    fi
+
+                    # Repair broken Next.js wrappers from previous sessions
+                    if [ -d "node_modules/next" ]; then
+                        rm -f "node_modules/swc-patch.js"
+                        mkdir -p "node_modules/.bin"
+                        rm -f "node_modules/.bin/next"
+                        cat << 'NEXTWRAPPER' > "node_modules/.bin/next"
+            #!/system/bin/sh
+            has_dev_or_build=false
+            for arg in "${'$'}@"; do
+                if [ "${'$'}arg" = "dev" ] || [ "${'$'}arg" = "build" ]; then
+                    has_dev_or_build=true
+                    break
+                fi
+            done
+
+            if [ "${'$'}has_dev_or_build" = "true" ]; then
+                exec "$usrBinDir/node" "${'$'}PWD/node_modules/next/dist/bin/next" "${'$'}@" --webpack
+            else
+                exec "$usrBinDir/node" "${'$'}PWD/node_modules/next/dist/bin/next" "${'$'}@"
+            fi
+            NEXTWRAPPER
+                        chmod 755 "node_modules/.bin/next"
                     fi
                 fi
             }
-            
+
             npm() { 
                 node "$filesDir/npm_pkg/bin/npm-cli.js" "$@"
                 _npm_fix
@@ -350,13 +468,16 @@ class PtyBridge {
                 builtin cd "$@" && export NODE_PATH=".:${'$'}PWD/node_modules:$usrDir/lib/node_modules"
             }
             
-            # Force Next.js to use WASM instead of native SWC
-            export NEXT_SWC_LOAD_WASM=1
-            export NEXT_IGNORE_NATIVE_SWC=1
+            # SWC Native Support (Enabled)
+            # export NEXT_SWC_LOAD_WASM=1
+            # export NEXT_IGNORE_NATIVE_SWC=1
             
             # Setup DNS
             echo "nameserver 8.8.8.8" > "${'$'}RESOLV_CONF"
             echo "nameserver 1.1.1.1" >> "${'$'}RESOLV_CONF"
+
+            # Auto-apply fixes if node_modules already exists
+            [ -d "node_modules" ] && _npm_fix
 
         """.trimIndent()
 

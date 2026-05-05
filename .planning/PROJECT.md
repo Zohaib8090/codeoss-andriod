@@ -32,9 +32,14 @@ Traditional "VS Code on Android" solutions rely on WebViews and local web server
 - [x] Added single file upload/download functionality.
 
 ### Phase 03.5: Terminal Hardening & DNS [COMPLETED]
-- [x] **Shell Function Strategy**: Bypassed Android 10+ `W^X` security policy by replacing wrapper scripts with in-memory shell functions.
-- [x] **DNS Monkey-Patch**: Implemented a universal DNS redirection for Node.js using `NODE_OPTIONS` to ensure connectivity in restricted environments.
+- [x] **Shell Function Strategy**: Bypassed Android 10+ `W^X` security policy.
+- [x] **DNS Monkey-Patch**: Implemented universal DNS redirection for Node.js.
 - [x] Fixed `Permission denied` errors for `git` and `node`.
+
+### Phase 03.6: Native SWC Integration [COMPLETED]
+- [x] **Native SWC Support**: Compiled and integrated native SWC binaries for high-performance Next.js builds.
+- [x] **Linker Namespace Fix**: Applied `$ORIGIN` patch to all SWC `.so` files.
+- [x] **Runtime Symlinking**: Automated symlink creation in `PtyBridge.kt` for seamless Next.js compatibility.
 
 ### Phase 04: Native Editor Polish [IN PROGRESS]
 - [ ] Implement robust syntax highlighting engine.
@@ -70,4 +75,4 @@ Traditional "VS Code on Android" solutions rely on WebViews and local web server
 This document evolves at phase transitions and milestone boundaries.
 
 ---
-*Last updated: 2026-04-27 after Phase 05 Source Control & Auth*
+*Last updated: 2026-05-04 after Native SWC Integration*

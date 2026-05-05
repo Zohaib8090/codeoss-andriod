@@ -8,15 +8,15 @@ This file serves as a persistent record of the project's progress and current ta
 ## Active Phase: Phase 4 (Language Server Protocol - LSP)
 **Status**: UPCOMING
 
-### Recently Completed (Phase 3):
-- [x] **Project Isolation**: The native PTY bridge now sets `HOME` and `PWD` to the specific project folder.
-- [x] **Terminal Synchronization**: All terminal tabs correctly follow the active project's directory.
-- [x] **Core Editor Engine**: A native text editor is now integrated. You can click files in the sidebar to open them, edit the text, and save changes.
-- [x] **Monospace & Line Numbers**: The editor includes line numbers and a developer-friendly font.
+### Recently Completed (Phase 3.6):
+- [x] **Native SWC Integration**: Compiled `aarch64-linux-android` binaries and patched with `$ORIGIN` logic for Next.js.
+- [x] **PtyBridge Symlinks**: Automated creation of SWC native nodes in `node_modules` for Next.js compatibility.
+- [x] **APK Deployment**: Successfully built and installed the latest APK on the mobile device.
 
 ### What we are doing next:
-1.  **LSP Client Implementation**: Building the Kotlin-based JSON-RPC client to talk to language servers.
-2.  **Syntax Highlighting**: Implementing basic coloring for Kotlin and JavaScript.
+- [ ] **LSP Client Completion**: Finish the text-insertion logic for Autocomplete.
+- [ ] **Syntax Highlighting**: Implement red wavy underlines and basic grammar parsing for the editor.
+- [ ] **Multi-Tab Polish**: Ensure smooth switching between multiple open files.
 
 ---
-*Last Sync: 2026-04-25 09:50 AM*
+*Last Sync: 2026-05-04 10:16 AM*

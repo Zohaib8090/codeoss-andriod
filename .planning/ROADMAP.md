@@ -27,13 +27,22 @@ Focus on setting up the native Android foundation, terminal, and bundled binarie
 - [x] Implement DNS monkey-patch for Node.js internet access.
 - [x] Fix `git clone` permission and connectivity issues.
 
-### Phase 4: Language Server Protocol (LSP)
-- [ ] Implement Kotlin JSON-RPC client.
-- [ ] Set up communication between Editor and Node.js-based LSPs.
-- [ ] Add basic syntax highlighting (TextMate grammar or treesitter).
-- [ ] Implement Autocomplete and Go-to-Definition.
+### Phase 3.6: Native SWC Integration [COMPLETED]
+- [x] Compile native SWC binaries for `aarch64-linux-android`.
+- [x] Apply surgical 35-character `$ORIGIN` RUNPATH patch to binaries.
+- [x] Implement automatic symlinking in `PtyBridge.kt` for Next.js support.
+- [x] Verify `next build` compatibility on Android.
 
-### Phase 5: Extension Host & UX Polish
-- [ ] Implement VS Code Extension Host bridge.
-- [ ] Support VS Code themes and keybindings.
-- [ ] Final performance optimizations and testing.
+### Phase 4: Language Server Protocol (LSP) [IN PROGRESS]
+- [/] Implement Kotlin JSON-RPC client (LspClient engine).
+- [x] Bridge TerminalViewModel to background Node.js language servers.
+- [x] Implement CodeEditor.kt UI for real-time Diagnostics and Autocomplete.
+- [ ] Implement text-insertion logic for completion resolution.
+- [ ] Add visual feedback (red wavy underlines) for diagnostics.
+
+### Phase 5: Extension Host & Marketplace [COMPLETED]
+- [x] Implement dynamic GitHub-driven Marketplace.
+- [x] Support NPM and ZIP-based extension installation.
+- [x] Implement real-time installation progress tracking.
+- [x] Fixed absolute paths for robust NPM execution.
+- [x] VS Code Extension Host bridge integration (Initial).

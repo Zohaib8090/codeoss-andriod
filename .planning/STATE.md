@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Core Native Environment
 status: in_progress
-last_updated: "2026-04-30T03:13:00.000Z"
+last_updated: "2026-05-04T10:15:00.000Z"
 progress:
   total_phases: 7
-  completed_phases: 5
-  total_plans: 9
-  completed_plans: 9
+  completed_phases: 6
+  total_plans: 10
+  completed_plans: 10
 ---
 
 # Project State — CodeOSS Android
@@ -18,13 +18,13 @@ progress:
 Milestone 1: Core Native
 
 ## Current Progress
-*   **Active Phase**: Phase 04 - Native Editor Polish & LSP Integration
+*   **Active Phase**: Phase 04 - Language Server Protocol (LSP)
 *   **Status**: In Progress
 *   **Recent Accomplishments**: 
+    *   **Native SWC Integration (Phase 3.6)**: Compiled and patched native Rust binaries for Next.js support.
     *   Completed Phase 06 (Marketplace & Extension Management) out-of-order.
     *   Built `LspClient` (JSON-RPC 2.0 streaming engine over standard I/O).
-    *   Bridged `TerminalViewModel` to background Node.js language servers.
-    *   Implemented `CodeEditor.kt` UI for real-time Diagnostics (error panels and badges) and Autocomplete dropdowns.
+    *   Implemented `CodeEditor.kt` UI for real-time Diagnostics and Autocomplete dropdowns.
 *   **Next Steps**: 
     *   Implement actual text-insertion logic for Autocomplete (`textDocument/completion` resolution).
     *   Add red wavy underlines directly beneath the text via `SyntaxVisualTransformation`.
@@ -48,4 +48,4 @@ Phase 06 (Marketplace & Extension Management) is **complete**. Key accomplishmen
 - **None** — The Marketplace and plugin ecosystem are fully operational.
 
 ---
-*Last updated: 2026-04-30 — Marketplace Complete*
+*Last updated: 2026-05-04 — SWC Integration & LSP Progress*

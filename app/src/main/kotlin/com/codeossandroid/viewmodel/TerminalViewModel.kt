@@ -21,6 +21,9 @@ import com.codeossandroid.lsp.Diagnostic
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.runtime.mutableStateListOf
+import android.content.Intent
+import android.os.Build
+import com.codeossandroid.service.CodeOSSService
 import org.json.JSONObject
 import org.json.JSONArray
 
@@ -58,6 +61,24 @@ data class ForwardedPort(val port: Int, val url: String, val process: Process)
 class TerminalViewModel(application: Application) : AndroidViewModel(application) {
     private val _instances = MutableStateFlow<List<TerminalInstance>>(emptyList())
     val instances = _instances.asStateFlow()
+
+    private fun manageBackgroundService() {
+        val hasTerminals = _instances.value.isNotEmpty()
+        val isInstalling = _installingIds.value.isNotEmpty()
+        val isUpdating = _isUpdatingBinaries.value
+        
+        if (hasTerminals || isInstalling || isUpdating) {
+            val intent = Intent(getApplication(), CodeOSSService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                getApplication<Application>().startForegroundService(intent)
+            } else {
+                getApplication<Application>().startService(intent)
+            }
+        } else {
+            val intent = Intent(getApplication(), CodeOSSService::class.java)
+            getApplication<Application>().stopService(intent)
+        }
+    }
     private val _activeInstanceIndex = MutableStateFlow(0)
     val activeInstanceIndex = _activeInstanceIndex.asStateFlow()
     private val _isReady = MutableStateFlow(false)
@@ -83,6 +104,8 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         "html", "htm" -> "html"
         "css" -> "css"
         "json" -> "json"
+        "js", "javascript" -> "javascript"
+        "ts", "typescript" -> "typescript"
         else -> null
     }
 
@@ -99,28 +122,69 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val nativeLibPath = getApplication<Application>().applicationInfo.nativeLibraryDir
         val libLinksDir = java.io.File(filesDir, "lib").absolutePath
 
-        // Check that the LSP binary exists (e.g. html-languageserver)
-        val lspBin = java.io.File(projDir, "node_modules/.bin/$langId-languageserver")
+        // Map language ID to the npm binary name
+        val binaryName = when (langId) {
+            "html" -> "html-languageserver"
+            "css" -> "css-languageserver"
+            "json" -> "json-languageserver"
+            "javascript", "typescript" -> "typescript-language-server"
+            else -> "$langId-languageserver"
+        }
+
+        // Check global lsp dir first, then project node_modules
+        var lspBin = java.io.File(filesDir, "lsp/node_modules/.bin/$binaryName")
         if (!lspBin.exists()) {
-            Log.w("CodeOSS", "LSP binary not found: ${lspBin.absolutePath}")
+            lspBin = java.io.File(projDir, "node_modules/.bin/$binaryName")
+        }
+
+        Log.d("CodeOSS", "LSP: Trying binary at: ${lspBin.absolutePath} exists=${lspBin.exists()}")
+
+        if (!lspBin.exists()) {
+            Log.w("CodeOSS", "LSP binary not found for $langId. Global lsp dir: $filesDir/lsp/node_modules/.bin/")
+            // List what is installed so we can diagnose
+            val lspBinDir = java.io.File(filesDir, "lsp/node_modules/.bin")
+            if (lspBinDir.exists()) {
+                Log.d("CodeOSS", "LSP bin dir contents: ${lspBinDir.list()?.joinToString()}") 
+            } else {
+                Log.w("CodeOSS", "LSP bin dir does not exist: ${lspBinDir.absolutePath}")
+            }
             return
         }
 
+        // Ensure the bin file is executable
+        lspBin.setExecutable(true)
+
+        // Use the SAME node binary path as runNpm (filesDir/usr/bin/node)
         val nodeBin = java.io.File(filesDir, "usr/bin/node").absolutePath
+        Log.d("CodeOSS", "LSP: nodeBin=$nodeBin exists=${java.io.File(nodeBin).exists()}")
+
+        val dnsFixPath = java.io.File(filesDir, "dns_fix.js").absolutePath
         val env = mapOf(
             "HOME" to filesDir,
             "USER" to "codeoss",
             "TMPDIR" to java.io.File(filesDir, "tmp").apply { mkdirs() }.absolutePath,
             "LD_LIBRARY_PATH" to "$nativeLibPath:$libLinksDir",
-            "NODE_PATH" to ".:$filesDir/npm_pkg/node_modules",
-            "PATH" to "$filesDir/usr/bin:$nativeLibPath:/system/bin:/system/xbin",
-            "OPENSSL_CONF" to "/dev/null"
+            "NODE_PATH" to "$filesDir/lsp/node_modules:$filesDir/npm_pkg/node_modules",
+            // Use filesDir/usr/bin (matching runNpm)
+            "PATH" to "$filesDir/usr/bin:$filesDir/bin:$nativeLibPath:/system/bin:/system/xbin",
+            "OPENSSL_CONF" to "/dev/null",
+            "NODE_OPTIONS" to "--require $dnsFixPath"
         )
 
-        // Execute via /system/bin/sh so the Termux wrapper script works perfectly
-        // and LD_LIBRARY_PATH is correctly passed to the libnode.so binary!
+        // The npm .bin entries are shell scripts (#!/usr/bin/env node).
+        // We run them via sh so the shebang is interpreted, and our PATH
+        // ensures the sh shebang resolves 'node' from filesDir/bin/node.
+        val lspBinPath = lspBin.absolutePath
+        val cmd = "export PATH='$filesDir/bin:$nativeLibPath:/system/bin:/system/xbin'; " +
+                  "export LD_LIBRARY_PATH='$nativeLibPath:$libLinksDir'; " +
+                  "export OPENSSL_CONF=/dev/null; " +
+                  "export NODE_OPTIONS='--require $dnsFixPath'; " +
+                  "exec '$nodeBin' '$lspBinPath' --stdio"
+
+        Log.d("CodeOSS", "LSP command: $cmd")
+
         val client = LspClient(
-            command = listOf("/system/bin/sh", "-c", "exec '$nodeBin' '${lspBin.absolutePath}' --stdio"),
+            command = listOf("/system/bin/sh", "-c", cmd),
             workingDir = projDir,
             env = env
         )
@@ -169,6 +233,12 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun requestCompletion(file: java.io.File, text: String, cursorOffset: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            doRequestCompletion(file, text, cursorOffset)
+        }
+    }
+
+    private suspend fun doRequestCompletion(file: java.io.File, text: String, cursorOffset: Int) {
         val ext = file.extension.lowercase()
         val client = activeLSPs[ext] ?: return
 
@@ -187,35 +257,33 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             line = i
         }
 
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val params = com.codeossandroid.lsp.CompletionParams(
-                    textDocument = com.codeossandroid.lsp.TextDocumentIdentifier("file://${file.absolutePath}"),
-                    position = com.codeossandroid.lsp.Position(line, character)
-                )
-                val response = client.request("textDocument/completion", params)
-                if (response != null && response.has("result") && !response.get("result").isJsonNull) {
-                    val result = response.get("result")
-                    val items = mutableListOf<com.codeossandroid.lsp.CompletionItem>()
-                    val gson = com.google.gson.Gson()
-                    
-                    if (result.isJsonObject && result.asJsonObject.has("items")) {
-                        val list = gson.fromJson(result, com.codeossandroid.lsp.CompletionList::class.java)
-                        items.addAll(list.items)
-                    } else if (result.isJsonArray) {
-                        val arr = result.asJsonArray
-                        arr.forEach { 
-                            items.add(gson.fromJson(it, com.codeossandroid.lsp.CompletionItem::class.java))
-                        }
+        try {
+            val params = com.codeossandroid.lsp.CompletionParams(
+                textDocument = com.codeossandroid.lsp.TextDocumentIdentifier("file://${file.absolutePath}"),
+                position = com.codeossandroid.lsp.Position(line, character)
+            )
+            val response = client.request("textDocument/completion", params)
+            if (response != null && response.has("result") && !response.get("result").isJsonNull) {
+                val result = response.get("result")
+                val items = mutableListOf<com.codeossandroid.lsp.CompletionItem>()
+                val gson = com.google.gson.Gson()
+                
+                if (result.isJsonObject && result.asJsonObject.has("items")) {
+                    val list = gson.fromJson(result, com.codeossandroid.lsp.CompletionList::class.java)
+                    items.addAll(list.items)
+                } else if (result.isJsonArray) {
+                    val arr = result.asJsonArray
+                    arr.forEach { 
+                        items.add(gson.fromJson(it, com.codeossandroid.lsp.CompletionItem::class.java))
                     }
-                    _completionItems.value = items
-                } else {
-                    _completionItems.value = emptyList()
                 }
-            } catch (e: Exception) {
-                Log.e("CodeOSS", "Completion request failed", e)
+                _completionItems.value = items
+            } else {
                 _completionItems.value = emptyList()
             }
+        } catch (e: Exception) {
+            Log.e("CodeOSS", "Completion request failed", e)
+            _completionItems.value = emptyList()
         }
     }
 
@@ -296,8 +364,10 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 }
             } finally {
                 _setupStatus.value = "Ready"
+                manageBackgroundService()
             }
         }
+        manageBackgroundService()
     }
 
     fun logoutGithub() {
@@ -398,9 +468,147 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     }
 
     init {
+        ensureDnsFix()
         refreshProjects()
         startLogcatStream()
         checkUpdate()
+        testNetwork()
+    }
+
+    private fun testNetwork() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                Log.i("CodeOSS", "Network Test: Starting...")
+                
+                // Test 1: TCP to 8.8.8.8:53 (Google DNS)
+                Log.i("CodeOSS", "Network Test: TCP to 8.8.8.8:53...")
+                val socket = java.net.Socket()
+                try {
+                    socket.connect(java.net.InetSocketAddress("8.8.8.8", 53), 5000)
+                    Log.i("CodeOSS", "Network Test: TCP to 8.8.8.8:53 SUCCESS")
+                    socket.close()
+                } catch (e: Exception) {
+                    Log.e("CodeOSS", "Network Test: TCP to 8.8.8.8:53 FAILED: ${e.message}")
+                }
+
+                // Test 2: DNS lookup for google.com
+                Log.i("CodeOSS", "Network Test: DNS lookup for google.com...")
+                try {
+                    val addr = java.net.InetAddress.getByName("google.com")
+                    Log.i("CodeOSS", "Network Test: DNS lookup SUCCESS: ${addr.hostAddress}")
+                } catch (e: Exception) {
+                    Log.e("CodeOSS", "Network Test: DNS lookup FAILED: ${e.message}")
+                }
+
+                // Test 3: HTTPS request
+                Log.i("CodeOSS", "Network Test: HTTPS to google.com...")
+                try {
+                    val url = java.net.URL("https://www.google.com")
+                    val conn = url.openConnection() as java.net.HttpURLConnection
+                    conn.connectTimeout = 5000
+                    conn.readTimeout = 5000
+                    val responseCode = conn.responseCode
+                    Log.i("CodeOSS", "Network Test: HTTPS SUCCESS, code: $responseCode")
+                    conn.disconnect()
+                } catch (e: Exception) {
+                    Log.e("CodeOSS", "Network Test: HTTPS FAILED: ${e.message}")
+                }
+                
+            } catch (e: Exception) {
+                Log.e("CodeOSS", "Network Test: GLOBAL FAILURE", e)
+            }
+        }
+    }
+
+    private fun ensureDnsFix() {
+        val filesDir = getApplication<Application>().filesDir
+        val dnsFixFile = java.io.File(filesDir, "dns_fix.js")
+        val script = """
+            (function() {
+                const dns = require('dns');
+                const { Resolver } = require('dns');
+                const promises = dns.promises;
+
+                const resolver = new Resolver();
+                resolver.setServers(['8.8.8.8', '1.1.1.1', '8.8.4.4']);
+
+                console.log('[DNS Patch] Initialized with servers:', resolver.getServers());
+
+                const originalLookup = dns.lookup;
+                dns.lookup = function(hostname, options, callback) {
+                    if (typeof options === 'function') {
+                        callback = options;
+                        options = {};
+                    }
+                    if (typeof options === 'number') {
+                        options = { family: options };
+                    }
+
+                    const family = options ? (options.family || 0) : 0;
+                    const all = options ? (options.all || false) : false;
+
+                    if (!hostname || hostname === 'localhost' || /^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
+                        return originalLookup(hostname, options, callback);
+                    }
+
+                    console.log('[DNS Patch] Looking up ' + hostname + ' (family: ' + family + ', all: ' + all + ')');
+
+                    const resolveMethod = family === 6 ? 'resolve6' : 'resolve4';
+                    
+                    resolver[resolveMethod](hostname, (err, addresses) => {
+                        if (err) {
+                            console.warn('[DNS Patch] Failed to resolve ' + hostname + ' via ' + resolveMethod + ': ' + err.message + '. Trying fallback.');
+                            if (family === 0 && resolveMethod === 'resolve4') {
+                                return resolver.resolve6(hostname, (err6, addresses6) => {
+                                    if (err6) return originalLookup(hostname, options, callback);
+                                    finish(addresses6, 6);
+                                });
+                            }
+                            return originalLookup(hostname, options, callback);
+                        }
+                        finish(addresses, family === 6 ? 6 : 4);
+                    });
+
+                    function finish(addresses, detectedFamily) {
+                        console.log('[DNS Patch] Resolved ' + hostname + ' to ' + addresses);
+                        if (all) {
+                            const results = addresses.map(addr => ({
+                                address: addr,
+                                family: detectedFamily
+                            }));
+                            return callback(null, results);
+                        } else {
+                            return callback(null, addresses[0], detectedFamily);
+                        }
+                    }
+                };
+
+                // Override promises.lookup if available
+                if (promises && promises.lookup) {
+                    promises.lookup = function(hostname, options) {
+                        return new Promise((resolve, reject) => {
+                            dns.lookup(hostname, options, (err, address, family) => {
+                                if (err) return reject(err);
+                                if (options && options.all) {
+                                    resolve(address);
+                                } else {
+                                    resolve({ address, family });
+                                }
+                            });
+                        });
+                    };
+                }
+                
+                // Override direct resolve methods
+                dns.resolve4 = (hostname, callback) => resolver.resolve4(hostname, callback);
+                dns.resolve6 = (hostname, callback) => resolver.resolve6(hostname, callback);
+                if (promises) {
+                    promises.resolve4 = (hostname) => new Promise((resolve, reject) => resolver.resolve4(hostname, (err, addr) => err ? reject(err) : resolve(addr)));
+                    promises.resolve6 = (hostname) => new Promise((resolve, reject) => resolver.resolve6(hostname, (err, addr) => err ? reject(err) : resolve(addr)));
+                }
+            })();
+        """.trimIndent()
+        dnsFixFile.writeText(script)
     }
 
     private fun checkUpdate() {
@@ -411,29 +619,33 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
                 val currentVersion = packageInfo.versionName ?: "1.0"
                 
-                val url = java.net.URL("https://api.github.com/repos/Zohaib8090/codeoss-andriod/releases/latest")
+                val url = java.net.URL("https://api.github.com/repos/Zohaib8090/codeoss-android/releases/latest")
                 connection = url.openConnection() as java.net.HttpURLConnection
                 connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
                 connection.setRequestProperty("User-Agent", "CodeOSS-Android-App")
                 
-                val response = connection.inputStream.bufferedReader().use { it.readText() }
-                val json = JSONObject(response)
-                val latestTag = json.getString("tag_name").replace("v", "")
-                if (latestTag != currentVersion) {
-                    val assets = json.getJSONArray("assets")
-                    var downloadUrl = json.getString("html_url")
-                    for (i in 0 until assets.length()) {
-                        val asset = assets.getJSONObject(i)
-                        if (asset.getString("name").endsWith(".apk")) {
-                            downloadUrl = asset.getString("browser_download_url")
-                            break
+                val conn = connection ?: return@launch
+                val responseCode = conn.responseCode
+                if (responseCode == 200) {
+                    val response = conn.inputStream.bufferedReader().use { it.readText() }
+                    val json = JSONObject(response)
+                    val latestTag = json.getString("tag_name").replace("v", "")
+                    if (latestTag != currentVersion) {
+                        val assets = json.getJSONArray("assets")
+                        var downloadUrl = json.getString("html_url")
+                        for (i in 0 until assets.length()) {
+                            val asset = assets.getJSONObject(i)
+                            if (asset.getString("name").endsWith(".apk")) {
+                                downloadUrl = asset.getString("browser_download_url")
+                                break
+                            }
                         }
+                        _availableUpdate.value = UpdateInfo(
+                            version = latestTag,
+                            downloadUrl = downloadUrl,
+                            releaseNotes = json.optString("body", "No release notes provided.")
+                        )
                     }
-                    _availableUpdate.value = UpdateInfo(
-                        version = latestTag,
-                        downloadUrl = downloadUrl,
-                        releaseNotes = json.optString("body", "No release notes provided.")
-                    )
                 }
             } catch (e: Exception) {
                 Log.e("CodeOSS", "Update check failed", e)
@@ -512,8 +724,9 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             var connection: java.net.HttpURLConnection? = null
             try {
                 val url = java.net.URL("https://open-vsx.org/api/${extension.namespace}/${extension.name}")
-                connection = url.openConnection() as java.net.HttpURLConnection
-                val text = connection.inputStream.bufferedReader().use { it.readText() }
+                val conn = url.openConnection() as java.net.HttpURLConnection
+                connection = conn
+                val text = conn.inputStream.bufferedReader().use { it.readText() }
                 val json = org.json.JSONObject(text)
                 val versionsObj = json.optJSONObject("allVersions")
                 val versionList = mutableListOf<String>()
@@ -552,10 +765,11 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             try {
                 val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
                 val url = java.net.URL("https://open-vsx.org/api/-/search?text=$encodedQuery&size=50")
-                connection = url.openConnection() as java.net.HttpURLConnection
-                connection.connectTimeout = 15000
-                connection.readTimeout = 15000
-                val text = connection.inputStream.bufferedReader().use { it.readText() }
+                val conn = url.openConnection() as java.net.HttpURLConnection
+                connection = conn
+                conn.connectTimeout = 15000
+                conn.readTimeout = 15000
+                val text = conn.inputStream.bufferedReader().use { it.readText() }
                 val json = org.json.JSONObject(text)
                 val results = json.getJSONArray("extensions")
                 val extensions = mutableListOf<MarketplaceExtension>()
@@ -569,7 +783,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     if (dName.contains(lowerQuery) || mName.contains(lowerQuery) ||
                         desc.contains(lowerQuery) || pub.contains(lowerQuery)) {
                         val files = ext.optJSONObject("files")
-                        val iconUrl = files?.optString("icon", null)
+                        val iconUrl = files?.optString("icon", "")
                         extensions.add(MarketplaceExtension(
                             name = ext.optString("name", "unknown"),
                             displayName = ext.optString("displayName", ext.optString("name", "Unknown")),
@@ -641,27 +855,31 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private fun runNpm(vararg args: String): Process? {
-        val proj = _activeProject.value ?: return null
-        val projDir = java.io.File(projectsRoot, proj)
+    private fun runNpm(workingDir: java.io.File? = null, vararg args: String): Process? {
+        val proj = _activeProject.value
+        val projDir = if (proj != null) java.io.File(projectsRoot, proj) else projectsRoot
+        val targetDir = workingDir ?: projDir
         val filesDir = getApplication<Application>().filesDir.absolutePath
         val nativeLibPath = getApplication<Application>().applicationInfo.nativeLibraryDir
-        val nodeBin = java.io.File(getApplication<Application>().filesDir, "bin/node").absolutePath
+        val nodeBin = java.io.File(getApplication<Application>().filesDir, "usr/bin/node").absolutePath
         val npmCli = java.io.File(getApplication<Application>().filesDir, "npm_pkg/bin/npm-cli.js").absolutePath
         val libLinksDir = java.io.File(filesDir, "lib").absolutePath
         
-        Log.d("CodeOSS", "NPM EXEC: node=$nodeBin npm=$npmCli cwd=${projDir.absolutePath}")
+        Log.d("CodeOSS", "NPM EXEC: node=$nodeBin npm=$npmCli cwd=${targetDir.absolutePath}")
         
         val pb = ProcessBuilder(nodeBin, npmCli, *args)
-        pb.directory(projDir)
+        pb.directory(targetDir)
         
+        val dnsFixPath = java.io.File(getApplication<Application>().filesDir, "dns_fix.js").absolutePath
         val env = pb.environment()
         env["HOME"] = filesDir
         env["USER"] = "codeoss"
         env["TMPDIR"] = java.io.File(filesDir, "tmp").apply { mkdirs() }.absolutePath
         env["LD_LIBRARY_PATH"] = "$nativeLibPath:$libLinksDir"
         env["NODE_PATH"] = ".:$filesDir/npm_pkg/node_modules"
-        env["PATH"] = "$filesDir/bin:$nativeLibPath:/system/bin:/system/xbin"
+        env["PATH"] = "$filesDir/usr/bin:$filesDir/bin:$nativeLibPath:/system/bin:/system/xbin"
+        env["OPENSSL_CONF"] = "/dev/null"
+        env["NODE_OPTIONS"] = "--require $dnsFixPath"
         
         pb.redirectErrorStream(true)
         
@@ -675,7 +893,9 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     fun installGithubExtension(extension: com.codeossandroid.bridge.Extension, version: String? = null) {
         val proj = _activeProject.value
-        if (proj == null) {
+        // Note: Global extensions (npm) don't strictly require an active project, but others might.
+        // We will allow npm installation even without an active project.
+        if (proj == null && extension.type != "npm") {
             Log.w("CodeOSS", "Install aborted: No active project")
             viewModelScope.launch(Dispatchers.Main) {
                 android.widget.Toast.makeText(getApplication(), "Please open a project first!", android.widget.Toast.LENGTH_LONG).show()
@@ -696,7 +916,14 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     _isUpdatingBinaries.value = true
                     
                     try {
-                        val proc = runNpm("install", targetPkg)
+                        val lspDir = java.io.File(getApplication<Application>().filesDir, "lsp")
+                        lspDir.mkdirs()
+                        val pkgJson = java.io.File(lspDir, "package.json")
+                        if (!pkgJson.exists()) {
+                            pkgJson.writeText("{}")
+                        }
+                        
+                        val proc = runNpm(lspDir, "install", targetPkg)
                         proc?.let { p ->
                             val reader = p.inputStream.bufferedReader()
                             var line: String?
@@ -1189,8 +1416,11 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 _outputLogs.value += "<<< Task completed.\n"
             } catch (e: Exception) {
                 _outputLogs.value += "ERROR: ${e.message}\n"
+            } finally {
+                manageBackgroundService()
             }
         }
+        manageBackgroundService()
     }
 
     private fun parseProblem(line: String, root: java.io.File) {
@@ -1327,10 +1557,10 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                         )
                     )
                     client.notify("textDocument/didChange", changeParams)
+                    
+                    // Trigger autocomplete request sequentially
+                    doRequestCompletion(file, value.text, value.selection.start)
                 }
-                
-                // Trigger autocomplete request
-                requestCompletion(file, value.text, value.selection.start)
             }
         }
     }
@@ -1663,6 +1893,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         _activeInstanceIndex.value = _instances.value.size - 1
         _setupStatus.value = "Starting Shell $nextId..."
         _isReady.value = true
+        manageBackgroundService()
     }
 
     fun switchTerminal(index: Int) { _activeInstanceIndex.value = index }
@@ -1675,6 +1906,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             removed.boundView = null
             _instances.value = newList
             _activeInstanceIndex.value = (_activeInstanceIndex.value).coerceAtMost(newList.size - 1)
+            manageBackgroundService()
         }
     }
 
@@ -1817,10 +2049,11 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             var connection: java.net.HttpURLConnection? = null
             try {
                 val url = java.net.URL("https://registry.npmjs.org/-/v1/search?text=${java.net.URLEncoder.encode(query, "UTF-8")}&size=20")
-                connection = url.openConnection() as java.net.HttpURLConnection
-                connection.setRequestProperty("User-Agent", "CodeOSS-Android-App")
-                if (connection.responseCode == 200) {
-                    val response = connection.inputStream.bufferedReader().use { it.readText() }
+                val conn = url.openConnection() as java.net.HttpURLConnection
+                connection = conn
+                conn.setRequestProperty("User-Agent", "CodeOSS-Android-App")
+                if (conn.responseCode == 200) {
+                    val response = conn.inputStream.bufferedReader().use { it.readText() }
                     val json = JSONObject(response)
                     val objects = json.getJSONArray("objects")
                     val results = mutableListOf<NpmPackage>()
@@ -1853,6 +2086,10 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
 
     override fun onCleared() {
         super.onCleared()
+        // Stop foreground service
+        val intent = Intent(getApplication(), CodeOSSService::class.java)
+        getApplication<Application>().stopService(intent)
+
         // Destroy logcat process
         logcatProcess?.destroy()
         logcatProcess = null

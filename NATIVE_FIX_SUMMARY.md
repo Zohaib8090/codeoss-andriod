@@ -27,6 +27,14 @@ The following files in `app/src/main/jniLibs/arm64-v8a/` were hex-patched:
 *   `libgit.so`
 *   `libnode.so`
 *   `libgit_remote_http.so`
+*   `libbinding_core_node.so` (SWC)
+*   `libbinding_minifier_node.so` (SWC)
+*   `libbinding_react_compiler_node.so` (SWC)
+*   `libbinding_html_node.so` (SWC)
+
+### 3.2 SWC (Next.js) Support
+Next.js uses Rust-based SWC for compilation. We compiled SWC natively for `aarch64-linux-android` and patched it with the same `$ORIGIN` RUNPATH fix.
+*   **Symlink Strategy**: Since Next.js expects SWC binaries at `node_modules/@next/swc-linux-arm64-gnu/next-swc.linux-arm64-gnu.node`, the `PtyBridge.kt` now automatically creates these symlinks after `npm install` or `npx` runs.
 
 ### Code Cleanup
 *   **`PtyBridge.kt`**: Removed `LD_PRELOAD` hacks and restored standard wrapper logic.

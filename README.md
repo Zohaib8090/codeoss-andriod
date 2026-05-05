@@ -105,7 +105,7 @@ Clone a repo, install npm packages, and run a dev server — all from your phone
 | Express / Node.js | ✅ Working | Full support |
 | Vue + Vite | ✅ Working | Pure JS build |
 | Svelte + Vite | ✅ Working | Pure JS build |
-| Next.js | ⏳ Pending | Blocked by missing SWC binary for Android arm64. [Track progress](https://github.com/vercel/next.js/discussions/93267) |
+| Next.js | ✅ Working | Full support via native SWC build |
 
 ---
 
@@ -123,6 +123,8 @@ CodeOSS Android
 ├── Bundled Binaries (jniLibs/arm64-v8a)
 │   ├── libnode.so (Node.js runtime)
 │   ├── libgit2.so (Git operations)
+│   ├── libbinding_core_node.so (SWC Core)
+│   ├── libbinding_minifier_node.so (SWC Minifier)
 │   ├── libcurl.so (HTTP/HTTPS)
 │   ├── libssl.so / libcrypto.so (OpenSSL 3.x)
 │   └── libicui18n/uc/data.so (Unicode support)
@@ -133,10 +135,6 @@ CodeOSS Android
 
 ## Known Limitations
 
-| Limitation | Reason | Status |
-|------------|--------|--------|
-| Next.js not supported | No SWC binary for Android arm64 | [Reported to Next.js](https://github.com/vercel/next.js/discussions/93267) |
-| Use `@vitejs/plugin-react` not swc | Same SWC issue | Workaround available |
 | No iOS support | Platform limitation | Not planned |
 | x86 devices not supported | All binaries are arm64-v8a | Not planned |
 
@@ -163,7 +161,7 @@ CodeOSS Android
 - [ ] LSP autocomplete (downloadable language packs)
 - [ ] AI assistant (bring your own API key)
 - [ ] Android app development support
-- [ ] Next.js support (pending SWC Android arm64)
+- [x] Next.js support (Native SWC support)
 
 ---
 

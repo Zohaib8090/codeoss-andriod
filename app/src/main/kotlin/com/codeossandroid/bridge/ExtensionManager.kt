@@ -60,7 +60,16 @@ object ExtensionManager {
                         val packageName = metadata.optString("packageName", null)
                         
                         val isInstalled = if (type == "npm" && packageName != null) {
-                            if (activeProject != null) {
+                            // Check global lsp dir
+                            val lspDir = File(context.filesDir, "lsp")
+                            val globalLsp = File(lspDir, "node_modules/$packageName")
+                            val binaryName = metadata.optString("lspBinary", null)
+                            val binaryFile = if (binaryName != null) File(lspDir, "node_modules/.bin/$binaryName") else null
+                            
+                            if (globalLsp.exists() && (binaryFile == null || binaryFile.exists())) {
+                                true
+                            } else if (activeProject != null) {
+                                // Fall back to project-local
                                 val projDir = File(File(context.filesDir, "projects"), activeProject)
                                 File(projDir, "node_modules/$packageName").exists()
                             } else {

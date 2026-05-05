@@ -101,6 +101,7 @@ class LspClient(
 
     private fun handleMessage(content: String) {
         try {
+            Log.d("LspClient", "RECV: $content")
             val element = JsonParser.parseString(content)
             if (element.isJsonObject) {
                 val obj = element.asJsonObject
@@ -124,10 +125,12 @@ class LspClient(
         }
     }
 
+    @Synchronized
     private fun send(message: Any) {
         val json = gson.toJson(message)
         val payload = "Content-Length: ${json.toByteArray().size}\r\n\r\n$json"
         try {
+            Log.d("LspClient", "SEND: $json")
             stdin?.write(payload.toByteArray())
             stdin?.flush()
         } catch (e: Exception) {
