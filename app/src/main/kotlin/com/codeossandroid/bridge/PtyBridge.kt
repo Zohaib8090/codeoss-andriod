@@ -245,12 +245,22 @@ class PtyBridge {
                 }
                 
                 // --- SWC / Next.js Android Native Fixes ---
+                // Fix semver.default for Next.js compatibility (Node.js v25 CJS interop issue)
+                try {
+                    const semver = require('semver');
+                    if (semver && typeof semver.satisfies === 'function' && !semver.default) {
+                        semver.default = semver;
+                    }
+                } catch(e) {}
+
                 const Module = require('module');
                 const originalLoad = Module._load;
                 const proxyCache = new WeakMap();
                 Module._load = function(request) {
                     const result = originalLoad.apply(this, arguments);
-                    if (request.includes('swc') || request.includes('turbopack') || request.includes('next')) {
+                    // Only target SWC and turbopack native binaries — NOT 'next' (too broad, breaks semver)
+                    const isSwcOrTurbo = request.includes('swc') || request.includes('turbopack');
+                    if (isSwcOrTurbo) {
                         if (result && (typeof result === 'object' || typeof result === 'function')) {
                             if (proxyCache.has(result)) return proxyCache.get(result);
                             try {
@@ -264,18 +274,15 @@ class PtyBridge {
                                         if (typeof prop === 'string') {
                                             if (prop === 'lockfileTryAcquireSync' || prop === 'lockfileReleaseSync' || prop === 'lockfileUnlockSync') return () => true;
                                             if (prop === 'expandNextJsTemplate') return () => "";
+                                            if (prop === 'projectNew' || prop === 'projectUpdate') return () => ({});
                                             if (prop.startsWith('project')) return () => ({});
-                                            // Generic fallback for missing native methods
-                                            return (...args) => { 
-                                                console.log('[Native Mock] Intercepted missing call:', prop, 'with args:', args);
+                                            // Generic fallback: Sync methods return true, others return "" (satisfies Rust String)
+                                            return (...args) => {
                                                 if (prop.includes('Sync')) return true;
-                                                return ""; // Return empty string to satisfy Rust type expectations
+                                                return "";
                                             };
                                         }
                                         return target[prop];
-                                    },
-                                    has(target, prop) {
-                                        return true;
                                     },
                                     getOwnPropertyDescriptor(target, prop) {
                                         const desc = Reflect.getOwnPropertyDescriptor(target, prop);
