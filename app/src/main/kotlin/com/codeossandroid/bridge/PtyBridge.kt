@@ -250,32 +250,41 @@ class PtyBridge {
                 const proxyCache = new WeakMap();
                 Module._load = function(request) {
                     const result = originalLoad.apply(this, arguments);
-                    if (request.includes('swc') || request.includes('turbopack')) {
+                    if (request.includes('swc') || request.includes('turbopack') || request.includes('next')) {
                         if (result && (typeof result === 'object' || typeof result === 'function')) {
                             if (proxyCache.has(result)) return proxyCache.get(result);
                             try {
-                                if (!('lockfileTryAcquireSync' in result)) {
-                                    const proxy = new Proxy(result, {
-                                        get(target, prop) {
-                                            if (prop === 'lockfileTryAcquireSync') return function() { return true; };
-                                            if (prop === 'lockfileReleaseSync') return function() { return true; };
-                                            if (prop === 'lockfileUnlockSync') return function() { return true; };
-                                            return target[prop];
-                                        },
-                                        has(target, prop) {
-                                            if (prop === 'lockfileTryAcquireSync' || prop === 'lockfileReleaseSync' || prop === 'lockfileUnlockSync') return true;
-                                            return prop in target;
-                                        },
-                                        getOwnPropertyDescriptor(target, prop) {
-                                            if (prop === 'lockfileTryAcquireSync' || prop === 'lockfileReleaseSync' || prop === 'lockfileUnlockSync') {
-                                                return { configurable: true, enumerable: true, value: function() { return true; }, writable: true };
-                                            }
-                                            return Reflect.getOwnPropertyDescriptor(target, prop);
+                                const proxy = new Proxy(result, {
+                                    get(target, prop) {
+                                        if (prop in target) {
+                                            const val = target[prop];
+                                            if (typeof val === 'function') return val.bind(target);
+                                            return val;
                                         }
-                                    });
-                                    proxyCache.set(result, proxy);
-                                    return proxy;
-                                }
+                                        if (typeof prop === 'string') {
+                                            if (prop === 'lockfileTryAcquireSync' || prop === 'lockfileReleaseSync' || prop === 'lockfileUnlockSync') return () => true;
+                                            if (prop === 'expandNextJsTemplate') return () => "";
+                                            if (prop.startsWith('project')) return () => ({});
+                                            // Generic fallback for missing native methods
+                                            return (...args) => { 
+                                                console.log('[Native Mock] Intercepted missing call:', prop, 'with args:', args);
+                                                if (prop.includes('Sync')) return true;
+                                                return ""; // Return empty string to satisfy Rust type expectations
+                                            };
+                                        }
+                                        return target[prop];
+                                    },
+                                    has(target, prop) {
+                                        return true;
+                                    },
+                                    getOwnPropertyDescriptor(target, prop) {
+                                        const desc = Reflect.getOwnPropertyDescriptor(target, prop);
+                                        if (desc) return desc;
+                                        return { configurable: true, enumerable: true, value: () => {}, writable: true };
+                                    }
+                                });
+                                proxyCache.set(result, proxy);
+                                return proxy;
                             } catch (e) {
                                 // Ignore
                             }
@@ -442,6 +451,11 @@ class PtyBridge {
                     break
                 fi
             done
+
+            # Android Environment Fixes
+            export NEXT_TELEMETRY_DISABLED=1
+            export CHOKIDAR_USEPOLLING=true
+            export WATCHPACK_POLLING=true
 
             if [ "${'$'}has_dev_or_build" = "true" ]; then
                 exec "$usrBinDir/node" "${'$'}PWD/node_modules/next/dist/bin/next" "${'$'}@" --webpack
