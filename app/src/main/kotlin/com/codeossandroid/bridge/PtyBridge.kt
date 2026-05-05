@@ -131,10 +131,39 @@ class PtyBridge {
         }
     }
 
+    private fun extractNextSwc(context: android.content.Context) {
+        val usrDir = java.io.File(context.filesDir, "usr")
+        val libDir = java.io.File(usrDir, "lib")
+        libDir.mkdirs()
+        val outFile = java.io.File(libDir, "next-swc.android-arm64.node")
+        if (outFile.exists() && outFile.length() > 0) return
+        try {
+            java.util.zip.ZipInputStream(context.assets.open("next-swc.zip")).use { zis ->
+                var entry = zis.nextEntry
+                while (entry != null) {
+                    val entryName = entry.name.replace('\\', '/')
+                    if (entryName == "next-swc.android-arm64.node") {
+                        java.io.FileOutputStream(outFile).use { out ->
+                            val buffer = ByteArray(8192)
+                            var len: Int
+                            while (zis.read(buffer).also { len = it } > 0) {
+                                out.write(buffer, 0, len)
+                            }
+                        }
+                    }
+                    entry = zis.nextEntry
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("PtyBridge", "Failed to extract next-swc", e)
+        }
+    }
+
     private fun setupSymlinks(context: android.content.Context, binPath: String, libPath: String) {
         extractNpmIfNeeded(context)
         extractGitTemplatesIfNeeded(context)
         extractTunnelScript(context)
+        extractNextSwc(context)
 
         val filesDir   = context.filesDir.absolutePath
         val usrDir     = filesDir + "/usr"
@@ -245,7 +274,95 @@ class PtyBridge {
                 }
                 
                 // --- SWC / Next.js Android Native Fixes ---
-                // Fix semver.default for Next.js compatibility (Node.js v25 CJS interop issue)
+
+                // Fix 1: Inject __NEXT_VERSION so SWC Rust layer gets a valid String, not undefined.
+                // This is the PRIMARY cause of 'Failed to convert JavaScript value Undefined into rust type String'
+                // (see next/dist/build/swc/index.js line: const nextVersion = process.env.__NEXT_VERSION)
+                (function injectNextVersion() {
+                    if (!process.env.__NEXT_VERSION) {
+                        try {
+                            // Walk up from cwd to find next/package.json
+                            const fs = require('fs');
+                            const path = require('path');
+                            const cwd = process.cwd();
+                            const candidates = [
+                                path.join(cwd, 'node_modules/next/package.json'),
+                                '/data/user/0/com.codeossandroid/files/projects/Spoton/node_modules/next/package.json'
+                            ];
+                            let ver = '16.1.6';
+                            for (const p of candidates) {
+                                try { ver = JSON.parse(fs.readFileSync(p,'utf8')).version || ver; break; } catch(e2) {}
+                            }
+                            process.env.__NEXT_VERSION = ver;
+                        } catch(e) {
+                            process.env.__NEXT_VERSION = '16.1.6';
+                        }
+                    }
+                })();
+
+                // Fix 1.5: Auto-patch next-swc binary if running in a Next.js project
+                (function autoPatchNextSWC() {
+                    try {
+                        const fs = require('fs');
+                        const path = require('path');
+                        const cwd = process.cwd();
+                        const dest = path.join(cwd, 'node_modules', '@next', 'swc-android-arm64', 'next-swc.android-arm64.node');
+                        if (fs.existsSync(path.dirname(dest))) {
+                            const src = '/data/user/0/com.codeossandroid/files/usr/lib/next-swc.android-arm64.node';
+                            if (fs.existsSync(src)) {
+                                const srcStat = fs.statSync(src);
+                                let needsCopy = true;
+                                if (fs.existsSync(dest)) {
+                                    if (fs.statSync(dest).size === srcStat.size) needsCopy = false;
+                                }
+                                if (needsCopy) {
+                                    fs.copyFileSync(src, dest);
+                                    console.log("[CodeOSS] Automatically patched next-swc native binary for Turbopack support");
+                                }
+                            }
+                        }
+                    } catch(e) {}
+                })();
+
+                // Fix 2: Sanitize SWC options to prevent undefined String fields from crashing Rust (napi-rs)
+                // Uses variadic args — scans ALL Buffer arguments regardless of position in the call.
+                function sanitizeSwcOpts(obj) {
+                    if (obj === null || typeof obj !== 'object') return obj;
+                    if (Array.isArray(obj)) return obj.map(sanitizeSwcOpts);
+                    const STR_FIELDS = new Set([
+                        'cacheRoot','serverReferenceHashSalt','relativeFilePathFromRoot',
+                        'filename','importPath','swcCacheDir','hashSalt',
+                        'globalInjects','cacheKey','root'
+                    ]);
+                    const out = {};
+                    for (const k of Object.keys(obj)) {
+                        const v = obj[k];
+                        if (v === undefined || v === null) {
+                            out[k] = STR_FIELDS.has(k) ? '' : v;
+                        } else {
+                            out[k] = sanitizeSwcOpts(v);
+                        }
+                    }
+                    return out;
+                }
+
+                function wrapSwcFn(val, target) {
+                    return function() {
+                        const args = Array.from(arguments);
+                        // Sanitize every Buffer argument (opts can be at any position)
+                        for (let i = 0; i < args.length; i++) {
+                            if (Buffer.isBuffer(args[i])) {
+                                try {
+                                    const parsed = JSON.parse(args[i].toString());
+                                    args[i] = Buffer.from(JSON.stringify(sanitizeSwcOpts(parsed)));
+                                } catch(e2) {}
+                            }
+                        }
+                        return val.apply(target, args);
+                    };
+                }
+
+                // Fix 3: semver.default for Next.js compatibility (Node.js v25 CJS interop issue)
                 try {
                     const semver = require('semver');
                     if (semver && typeof semver.satisfies === 'function' && !semver.default) {
@@ -256,49 +373,51 @@ class PtyBridge {
                 const Module = require('module');
                 const originalLoad = Module._load;
                 const proxyCache = new WeakMap();
-                Module._load = function(request) {
+                const SWC_TRANSFORM_METHODS = new Set(['transform','transformSync','minify','minifySync','parse','parseSync']);
+                Module._load = function(request, parent, isMain) {
                     const result = originalLoad.apply(this, arguments);
-                    // Only intercept actual native binary .node files (e.g. next-swc.linux-arm64-gnu.node)
-                    // DO NOT intercept JS loaders like next-swc-loader.js — breaks webpack this.async API
-                    const isNativeBinary = request.endsWith('.node') ||
-                        (request.includes('@next/swc') && !request.endsWith('.js')) ||
-                        (request.includes('turbopack') && request.endsWith('.node'));
-                    if (isNativeBinary) {
-                        if (result && (typeof result === 'object' || typeof result === 'function')) {
-                            if (proxyCache.has(result)) return proxyCache.get(result);
-                            try {
-                                const proxy = new Proxy(result, {
-                                    get(target, prop) {
-                                        if (prop in target) {
-                                            const val = target[prop];
-                                            if (typeof val === 'function') return val.bind(target);
-                                            return val;
+
+                    // Intercept .node native binary loads AND the SWC JS index wrapper
+                    const isNativeBinary = (typeof request === 'string') && (
+                        request.endsWith('.node') ||
+                        (request.includes('@next/swc') && !request.includes('loader')) ||
+                        (request.includes('next-swc') && request.endsWith('.node')) ||
+                        (request.includes('turbopack') && request.endsWith('.node'))
+                    );
+
+                    if (isNativeBinary && result && (typeof result === 'object' || typeof result === 'function')) {
+                        if (proxyCache.has(result)) return proxyCache.get(result);
+                        try {
+                            const proxy = new Proxy(result, {
+                                get(target, prop) {
+                                    if (prop in target) {
+                                        const val = target[prop];
+                                        if (typeof val === 'function') {
+                                            if (SWC_TRANSFORM_METHODS.has(prop)) {
+                                                return wrapSwcFn(val, target);
+                                            }
+                                            return val.bind(target);
                                         }
-                                        if (typeof prop === 'string') {
-                                            if (prop === 'lockfileTryAcquireSync' || prop === 'lockfileReleaseSync' || prop === 'lockfileUnlockSync') return () => true;
-                                            if (prop === 'expandNextJsTemplate') return () => "";
-                                            if (prop === 'projectNew' || prop === 'projectUpdate') return () => ({});
-                                            if (prop.startsWith('project')) return () => ({});
-                                            // Generic fallback: Sync methods return true, others return "" (satisfies Rust String)
-                                            return (...args) => {
-                                                if (prop.includes('Sync')) return true;
-                                                return "";
-                                            };
-                                        }
-                                        return target[prop];
-                                    },
-                                    getOwnPropertyDescriptor(target, prop) {
-                                        const desc = Reflect.getOwnPropertyDescriptor(target, prop);
-                                        if (desc) return desc;
-                                        return { configurable: true, enumerable: true, value: () => {}, writable: true };
+                                        return val;
                                     }
-                                });
-                                proxyCache.set(result, proxy);
-                                return proxy;
-                            } catch (e) {
-                                // Ignore
-                            }
-                        }
+                                    if (typeof prop === 'string') {
+                                        if (prop === 'lockfileTryAcquireSync' || prop === 'lockfileReleaseSync' || prop === 'lockfileUnlockSync') return () => true;
+                                        if (prop === 'expandNextJsTemplate') return () => '';
+                                        if (prop === 'projectNew' || prop === 'projectUpdate') return () => ({});
+                                        if (prop.startsWith('project')) return () => ({});
+                                        return (...args) => prop.includes('Sync') ? true : '';
+                                    }
+                                    return target[prop];
+                                },
+                                getOwnPropertyDescriptor(target, prop) {
+                                    const desc = Reflect.getOwnPropertyDescriptor(target, prop);
+                                    if (desc) return desc;
+                                    return { configurable: true, enumerable: true, value: () => {}, writable: true };
+                                }
+                            });
+                            proxyCache.set(result, proxy);
+                            return proxy;
+                        } catch (e) { /* ignore proxy errors */ }
                     }
                     return result;
                 };
@@ -467,6 +586,8 @@ class PtyBridge {
             export CHOKIDAR_USEPOLLING=true
             export WATCHPACK_POLLING=true
             export WATCHPACK_POLLING_INTERVAL=500
+            # Keep SWC enabled (native binary patched via dns-override.js proxy)
+            # __NEXT_VERSION is injected by dns-override.js before Next.js loads
 
             if [ "${'$'}has_dev_or_build" = "true" ]; then
                 # Clear corrupted webpack cache before every dev/build start
