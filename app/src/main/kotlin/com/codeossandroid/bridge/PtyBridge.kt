@@ -272,6 +272,49 @@ class PtyBridge {
                   promises.resolve4 = (hostname) => new Promise((resolve, reject) => resolver.resolve4(hostname, (err, addr) => err ? reject(err) : resolve(addr)));
                   promises.resolve6 = (hostname) => new Promise((resolve, reject) => resolver.resolve6(hostname, (err, addr) => err ? reject(err) : resolve(addr)));
                 }
+
+                // --- FS EACCES Fix for Watchpack ---
+                const fs = require('fs');
+                function handleEacces(err) {
+                    if (err && err.code === 'EACCES') err.code = 'ENOENT';
+                    return err;
+                }
+                
+                const origReaddir = fs.readdir;
+                fs.readdir = function(path, options, callback) {
+                    if (typeof options === 'function') { callback = options; options = undefined; }
+                    origReaddir(path, options, (err, files) => {
+                        if (err && err.code === 'EACCES') return callback(null, []);
+                        callback(err, files);
+                    });
+                };
+                const origReaddirSync = fs.readdirSync;
+                fs.readdirSync = function(path, options) {
+                    try { return origReaddirSync(path, options); }
+                    catch(err) { if(err.code === 'EACCES') return []; throw err; }
+                };
+                
+                const origStat = fs.stat;
+                fs.stat = function(path, options, callback) {
+                    if (typeof options === 'function') { callback = options; options = undefined; }
+                    origStat(path, options, (err, stats) => callback(err ? handleEacces(err) : null, stats));
+                };
+                const origStatSync = fs.statSync;
+                fs.statSync = function(path, options) {
+                    try { return origStatSync(path, options); }
+                    catch(err) { if(err.code === 'EACCES') { err.code = 'ENOENT'; } throw err; }
+                };
+                
+                const origLstat = fs.lstat;
+                fs.lstat = function(path, options, callback) {
+                    if (typeof options === 'function') { callback = options; options = undefined; }
+                    origLstat(path, options, (err, stats) => callback(err ? handleEacces(err) : null, stats));
+                };
+                const origLstatSync = fs.lstatSync;
+                fs.lstatSync = function(path, options) {
+                    try { return origLstatSync(path, options); }
+                    catch(err) { if(err.code === 'EACCES') { err.code = 'ENOENT'; } throw err; }
+                };
                 
                 // --- SWC / Next.js Android Native Fixes ---
 
@@ -281,8 +324,6 @@ class PtyBridge {
                 (function injectNextVersion() {
                     if (!process.env.__NEXT_VERSION) {
                         try {
-                            // Walk up from cwd to find next/package.json
-                            const fs = require('fs');
                             const path = require('path');
                             const cwd = process.cwd();
                             const candidates = [
@@ -303,7 +344,6 @@ class PtyBridge {
                 // Fix 1.5: Auto-patch next-swc binary if running in a Next.js project
                 (function autoPatchNextSWC() {
                     try {
-                        const fs = require('fs');
                         const path = require('path');
                         const cwd = process.cwd();
                         const dest = path.join(cwd, 'node_modules', '@next', 'swc-android-arm64', 'next-swc.android-arm64.node');
@@ -325,7 +365,6 @@ class PtyBridge {
                 })();
 
                 // Fix 2: Sanitize SWC options to prevent undefined String fields from crashing Rust (napi-rs)
-                // Uses variadic args — scans ALL Buffer arguments regardless of position in the call.
                 function sanitizeSwcOpts(obj) {
                     if (obj === null || typeof obj !== 'object') return obj;
                     if (Array.isArray(obj)) return obj.map(sanitizeSwcOpts);
@@ -338,7 +377,7 @@ class PtyBridge {
                     for (const k of Object.keys(obj)) {
                         const v = obj[k];
                         if (v === undefined || v === null) {
-                            out[k] = STR_FIELDS.has(k) ? '' : v;
+                            out[k] = STR_FIELDS.has(k) ? '' : (v === undefined ? null : v);
                         } else {
                             out[k] = sanitizeSwcOpts(v);
                         }
@@ -349,13 +388,16 @@ class PtyBridge {
                 function wrapSwcFn(val, target) {
                     return function() {
                         const args = Array.from(arguments);
-                        // Sanitize every Buffer argument (opts can be at any position)
                         for (let i = 0; i < args.length; i++) {
                             if (Buffer.isBuffer(args[i])) {
                                 try {
                                     const parsed = JSON.parse(args[i].toString());
                                     args[i] = Buffer.from(JSON.stringify(sanitizeSwcOpts(parsed)));
                                 } catch(e2) {}
+                            } else if (typeof args[i] === 'object' && args[i] !== null) {
+                                args[i] = sanitizeSwcOpts(args[i]);
+                            } else if (args[i] === undefined) {
+                                args[i] = null;
                             }
                         }
                         return val.apply(target, args);
@@ -436,6 +478,8 @@ class PtyBridge {
             export OPENSSL_CONF="/dev/null"
             export RESOLV_CONF="$usrEtcDir/resolv.conf"
             export GIT_SSL_NO_VERIFY=true
+            export WATCHPACK_POLLING=true
+            export CHOKIDAR_USEPOLLING=1
             export GIT_TEMPLATE_DIR="$filesDir/git_templates"
             export GIT_CONFIG_NOSYSTEM=1
             export GIT_CONFIG_GLOBAL="$usrEtcDir/gitconfig"
