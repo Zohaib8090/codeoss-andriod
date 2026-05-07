@@ -199,10 +199,37 @@ fun CodeEditor(viewModel: TerminalViewModel, viewportId: Int = 0) {
                         .background(Color(0xFF1C2128), androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
                         .border(1.dp, Color(0xFF30363D), androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
                         .heightIn(max = 200.dp)
-                        .widthIn(min = 200.dp, max = 320.dp)
+                        .widthIn(min = 200.dp, max = 400.dp)
                 ) {
                     LazyColumn {
                         items(completionItems) { item ->
+                            val icon = when (item.kind) {
+                                1 -> Icons.Default.TextSnippet
+                                2, 3 -> Icons.Default.Functions
+                                5, 6, 10 -> Icons.Default.Code
+                                7, 8, 22 -> Icons.Default.Class
+                                9 -> Icons.Default.Inventory2
+                                11, 12 -> Icons.Default.SettingsEthernet
+                                13, 20 -> Icons.Default.List
+                                14 -> Icons.Default.VpnKey
+                                15 -> Icons.Default.Extension
+                                16 -> Icons.Default.Palette
+                                17 -> Icons.Default.Description
+                                18 -> Icons.Default.Link
+                                19 -> Icons.Default.Folder
+                                21 -> Icons.Default.Lock
+                                25 -> Icons.Default.TypeSpecimen
+                                else -> Icons.Default.Code
+                            }
+                            val iconColor = when (item.kind) {
+                                2, 3 -> Color(0xFFB392F0) // Purple
+                                5, 6, 10 -> Color(0xFF79C0FF) // Blue
+                                7, 8, 22 -> Color(0xFFFFA657) // Orange
+                                14 -> Color(0xFFFF7B72) // Red
+                                15 -> Color(0xFF7EE787) // Green
+                                else -> Color(0xFF58A6FF)
+                            }
+
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -210,9 +237,28 @@ fun CodeEditor(viewModel: TerminalViewModel, viewportId: Int = 0) {
                                     .padding(horizontal = 12.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Default.Code, null, tint = Color(0xFF58A6FF), modifier = Modifier.size((14 * uiScale).dp))
+                                Icon(icon, null, tint = iconColor, modifier = Modifier.size((14 * uiScale).dp))
                                 Spacer(Modifier.width(8.dp))
-                                Text(text = item.label, color = Color.White, fontSize = (12 * uiScale).sp, fontFamily = FontFamily.Monospace)
+                                Text(
+                                    text = item.label,
+                                    color = Color.White,
+                                    fontSize = (12 * uiScale).sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                                if (!item.detail.isNullOrBlank()) {
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = item.detail,
+                                        color = Color.Gray,
+                                        fontSize = (10 * uiScale).sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                }
                             }
                             Divider(color = Color(0xFF30363D).copy(alpha = 0.5f))
                         }

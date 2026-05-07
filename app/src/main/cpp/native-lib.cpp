@@ -10,6 +10,7 @@
 #include <string.h>
 #include <git2.h>
 #include <vector>
+#include <stdarg.h>
 
 #define TAG "GitBridge"
 
@@ -83,9 +84,18 @@ extern "C" {
 
 typedef int (*execve_t)(const char *, char *const [], char *const []);
 typedef int (*access_t)(const char *, int);
+typedef int (*open_t)(const char *, int, ...);
+typedef int (*stat_t)(const char *, struct stat *);
+typedef int (*lstat_t)(const char *, struct stat *);
+typedef int (*xstat_t)(int, const char *, struct stat *);
 
 static execve_t real_execve = nullptr;
 static access_t real_access = nullptr;
+static open_t real_open = nullptr;
+static stat_t real_stat = nullptr;
+static lstat_t real_lstat = nullptr;
+static xstat_t real_xstat = nullptr;
+static xstat_t real_lxstat = nullptr;
 
 __attribute__((constructor))
 static void init() {
@@ -93,6 +103,7 @@ static void init() {
 }
 
 static const char* resolve_helper(const char* path) {
+    if (!path) return nullptr;
     if (strstr(path, "git-remote-https")) return "libgit-remote-https.so";
     if (strstr(path, "git-remote-http")) return "libgit-remote-http.so";
     if (strstr(path, "git-remote-ftp")) return "libgit-remote-ftp.so";
@@ -108,12 +119,98 @@ static const char* resolve_helper(const char* path) {
     return nullptr;
 }
 
+static const char* do_redirect(const char* pathname, char* buffer, size_t size) {
+    if (!pathname) return nullptr;
+
+    // 1. Redirect OpenSSL requests to our isolated versions
+    if (strstr(pathname, "libcrypto.so") || strstr(pathname, "libssl.so")) {
+        const char* lib_dir = getenv("LD_LIBRARY_PATH");
+        if (lib_dir) {
+            const char* target = strstr(pathname, "libcrypto.so") ? "libcrypt3.so" : "libsl3.so";
+            char first_dir[512];
+            if (sscanf(lib_dir, "%511[^:]", first_dir) == 1) {
+                snprintf(buffer, size, "%s/%s", first_dir, target);
+                LOGI("Redirecting (OpenSSL): %s -> %s", pathname, buffer);
+                return buffer;
+            }
+        }
+    }
+
+    // 2. Redirect patched Termux paths to actual app home
+    if (strstr(pathname, "/data/local/tmp/cterm")) {
+        const char* app_home = getenv("HOME");
+        if (app_home) {
+            // /data/local/tmp/cterm is 21 chars
+            const char* relative = pathname + 21;
+            if (strncmp(relative, "/files", 6) == 0) {
+                relative += 6;
+            }
+            snprintf(buffer, size, "%s%s", app_home, relative);
+            LOGI("Redirecting (Termux): %s -> %s", pathname, buffer);
+            return buffer;
+        }
+    }
+
+    return pathname;
+}
+
 int access(const char *path, int mode) {
     if (!real_access) real_access = (access_t)dlsym(RTLD_NEXT, "access");
+    
     if (resolve_helper(path)) {
-        return 0; // Always pretend Git helpers exist and are accessible
+        return 0; // Pretend Git helpers exist
     }
-    return real_access(path, mode);
+
+    char buffer[1024];
+    const char* final_path = do_redirect(path, buffer, sizeof(buffer));
+    return real_access(final_path, mode);
+}
+
+int open(const char *pathname, int flags, ...) {
+    if (!real_open) real_open = (open_t)dlsym(RTLD_NEXT, "open");
+    
+    char buffer[1024];
+    const char* final_path = do_redirect(pathname, buffer, sizeof(buffer));
+
+    mode_t mode = 0;
+    if (flags & O_CREAT) {
+        va_list args;
+        va_start(args, flags);
+        mode = va_arg(args, mode_t);
+        va_end(args);
+    }
+    return real_open(final_path, flags, mode);
+}
+
+int stat(const char *pathname, struct stat *statbuf) {
+    if (!real_stat) real_stat = (stat_t)dlsym(RTLD_NEXT, "stat");
+    char buffer[1024];
+    const char* final_path = do_redirect(pathname, buffer, sizeof(buffer));
+    return real_stat(final_path, statbuf);
+}
+
+int lstat(const char *pathname, struct stat *statbuf) {
+    if (!real_lstat) real_lstat = (lstat_t)dlsym(RTLD_NEXT, "lstat");
+    char buffer[1024];
+    const char* final_path = do_redirect(pathname, buffer, sizeof(buffer));
+    return real_lstat(final_path, statbuf);
+}
+
+// Bionic often uses these internal versions
+int __xstat(int ver, const char *pathname, struct stat *statbuf) {
+    if (!real_xstat) real_xstat = (xstat_t)dlsym(RTLD_NEXT, "__xstat");
+    char buffer[1024];
+    const char* final_path = do_redirect(pathname, buffer, sizeof(buffer));
+    if (real_xstat) return real_xstat(ver, final_path, statbuf);
+    return -1;
+}
+
+int __lxstat(int ver, const char *pathname, struct stat *statbuf) {
+    if (!real_lxstat) real_lxstat = (xstat_t)dlsym(RTLD_NEXT, "__lxstat");
+    char buffer[1024];
+    const char* final_path = do_redirect(pathname, buffer, sizeof(buffer));
+    if (real_lxstat) return real_lxstat(ver, final_path, statbuf);
+    return -1;
 }
 
 int execve(const char *filename, char *const argv[], char *const envp[]) {
@@ -130,7 +227,9 @@ int execve(const char *filename, char *const argv[], char *const envp[]) {
         }
     }
     
-    return real_execve(filename, argv, envp);
+    char buffer[1024];
+    const char* final_path = do_redirect(filename, buffer, sizeof(buffer));
+    return real_execve(final_path, argv, envp);
 }
 
 // Global DNS Interceptor
@@ -145,37 +244,6 @@ int getaddrinfo(const char *node, const char *service, const struct addrinfo *hi
     }
     
     return real_getaddrinfo(node, service, hints, res);
-}
-
-// File Open Interceptor for OpenSSL Shadowing
-typedef int (*open_t)(const char *pathname, int flags, ...);
-static open_t real_open = nullptr;
-
-int open(const char *pathname, int flags, ...) {
-    if (!real_open) real_open = (open_t)dlsym(RTLD_NEXT, "open");
-    
-    const char* final_path = pathname;
-    
-    // Redirect OpenSSL requests to our isolated versions to avoid system conflicts
-    if (pathname && (strstr(pathname, "libcrypto.so") || strstr(pathname, "libssl.so"))) {
-        const char* lib_dir = getenv("LD_LIBRARY_PATH"); // We store our libs here
-        if (lib_dir) {
-            static char redirect_path[1024];
-            const char* target = strstr(pathname, "libcrypto.so") ? "libc3.so" : "libs3.so";
-            // Extract the first directory from LD_LIBRARY_PATH (which should be our files/lib)
-            char first_dir[512];
-            sscanf(lib_dir, "%511[^:]", first_dir);
-            snprintf(redirect_path, sizeof(redirect_path), "%s/%s", first_dir, target);
-            LOGI("Redirecting open: %s -> %s", pathname, redirect_path);
-            final_path = redirect_path;
-        }
-    }
-
-    va_list args;
-    va_start(args, flags);
-    mode_t mode = va_arg(args, mode_t);
-    va_end(args);
-    return real_open(final_path, flags, mode);
 }
 
 }
@@ -229,7 +297,7 @@ Java_com_codeossandroid_bridge_PtyBridge_createPty(JNIEnv *env, jobject thiz, js
         execl(s_shell.c_str(), s_shell.c_str(), "-i", "-l", nullptr);
         
         LOGE("Failed to exec shell: %s", s_shell.c_str());
-        _exit(1); // Use _exit in child after fork
+        _exit(1);
     }
 
     LOGI("Spawned shell PID: %d, Master FD: %d", pid, master_fd);

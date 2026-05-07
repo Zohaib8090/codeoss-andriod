@@ -98,6 +98,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     val lspDiagnostics = _lspDiagnostics.asStateFlow()
     private val _completionItems = MutableStateFlow<List<com.codeossandroid.lsp.CompletionItem>>(emptyList())
     val completionItems = _completionItems.asStateFlow()
+    private var completionJob: kotlinx.coroutines.Job? = null
     private var lspDocVersion = 0
 
     private fun getLanguageId(extension: String) = when (extension.lowercase()) {
@@ -233,7 +234,9 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun requestCompletion(file: java.io.File, text: String, cursorOffset: Int) {
-        viewModelScope.launch(Dispatchers.IO) {
+        completionJob?.cancel()
+        completionJob = viewModelScope.launch(Dispatchers.IO) {
+            kotlinx.coroutines.delay(150) // Debounce
             doRequestCompletion(file, text, cursorOffset)
         }
     }
@@ -285,6 +288,17 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             Log.e("CodeOSS", "Completion request failed", e)
             _completionItems.value = emptyList()
         }
+    }
+    
+    private fun getOffsetAt(text: String, line: Int, character: Int): Int {
+        val lines = text.split('\n')
+        var currentOffset = 0
+        for (i in 0 until line) {
+            if (i < lines.size) {
+                currentOffset += lines[i].length + 1
+            }
+        }
+        return (currentOffset + character).coerceIn(0, text.length)
     }
 
     fun clearCompletions() {
@@ -1558,8 +1572,8 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     )
                     client.notify("textDocument/didChange", changeParams)
                     
-                    // Trigger autocomplete request sequentially
-                    doRequestCompletion(file, value.text, value.selection.start)
+                    // Trigger autocomplete request with debouncing
+                    requestCompletion(file, value.text, value.selection.start)
                 }
             }
         }
@@ -1571,12 +1585,19 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         if (tabIndex in currentTabs.indices) {
             val tab = currentTabs[tabIndex]
             val currentText = tab.text.text
-            val cursorOffset = tab.text.selection.start
             
-            // Simple insertion at cursor
-            val insertText = item.insertText ?: item.label
-            val newText = currentText.substring(0, cursorOffset) + insertText + currentText.substring(cursorOffset)
-            val newCursor = cursorOffset + insertText.length
+            val (newText, newCursor) = if (item.textEdit != null) {
+                val start = getOffsetAt(currentText, item.textEdit!!.range.start.line, item.textEdit!!.range.start.character)
+                val end = getOffsetAt(currentText, item.textEdit!!.range.end.line, item.textEdit!!.range.end.character)
+                val replacement = item.textEdit!!.newText
+                val t = currentText.substring(0, start) + replacement + currentText.substring(end)
+                Pair(t, start + replacement.length)
+            } else {
+                val cursorOffset = tab.text.selection.start
+                val insertText = item.insertText ?: item.label
+                val t = currentText.substring(0, cursorOffset) + insertText + currentText.substring(cursorOffset)
+                Pair(t, cursorOffset + insertText.length)
+            }
             
             val newValue = TextFieldValue(newText, TextRange(newCursor))
             currentTabs[tabIndex] = tab.copy(text = newValue, isModified = true)

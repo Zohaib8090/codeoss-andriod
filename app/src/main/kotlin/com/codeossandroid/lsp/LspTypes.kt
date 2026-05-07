@@ -126,6 +126,20 @@ data class CompletionItem(
     val label: String,
     val kind: Int? = null,
     val detail: String? = null,
-    val documentation: String? = null,
-    val insertText: String? = null
+    val documentation: Any? = null, // Can be string or MarkupContent
+    val sortText: String? = null,
+    val filterText: String? = null,
+    val insertText: String? = null,
+    val textEdit: TextEdit? = null,
+    val additionalTextEdits: List<TextEdit>? = null
+)
+
+data class TextEdit(
+    val range: Range,
+    val newText: String
+)
+
+data class MarkupContent(
+    val kind: String,
+    val value: String
 )
