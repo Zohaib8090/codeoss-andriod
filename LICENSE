@@ -1,26 +1,37 @@
-KODRIXIDE SOURCE-AVAILABLE LICENSE
-1. OWNERSHIP AND COPYING
-The source code, brand name, and assets of KodrixIDE are the intellectual property of the author (Zohaib).
+KODRIXIDE SOURCE-AVAILABLE LICENSE (v2.0)
+1. OWNERSHIP & ANTI-COPY PROTECTION
+The source code, logic, and branding of KodrixIDE are the sole intellectual property of Zohaib.
 
-No Redistribution: You are strictly prohibited from copying, remixing, or redistributing this repository (or any part of it) to create a competing IDE or software service.
+No Redistribution: You may not host, mirror, or redistribute this source code on any platform (GitHub, GitLab, Bitbucket, etc.) as your own.
 
-Personal Use: You may download and modify the code for personal learning, local testing, and private development only.
+No Plagiarism: You are strictly forbidden from "copy-pasting" significant portions of this logic into competing IDE projects.
 
-2. COMMERCIAL USE AND REVENUE
-This software is "Free for Personal Use" but requires a Commercial License for any business use.
+Reverse Engineering: You may not decompile or reverse-engineer the compiled binaries of KodrixIDE for commercial gain.
 
-The Trigger: If you deploy any project using this software online and it generates any revenue (subscriptions, ads, or sales), you are legally required to contact the author to purchase a Commercial License.
+2. COMMERCIAL DEPLOYMENT & REVENUE TRIGGER
+KodrixIDE follows a "Test for Free, Pay to Earn" model.
 
-Startup Clause: Even if you are not yet profitable, any deployment in a "Production" environment for public use requires written permission from the author.
+Free Use: Local development, educational learning, and private testing are 100% free.
+
+Deployment Trigger: Any public deployment of a service using KodrixIDE code requires a license.
+
+The Earning Rule: If your deployment generates any revenue (via ads, subscriptions, or sales), you must purchase a Commercial License from Zohaib.
 
 3. MANDATORY ATTRIBUTION
-If you use this software for any project, you must credit the original work.
+Every project built with or powered by this software must include the following in its documentation and "About" section:
 
-Documentation: You must include the following line in your project's documentation (README, Docs, or "About" page):
+"Powered by KodrixIDE by Zohaib"
+A direct link to the original KodrixIDE GitHub repository must be provided.
 
-Powered by KodrixIDE by Zohaib
+4. TERMINATION
+If you violate any of these terms (e.g., you deploy for profit without paying, or you remove the attribution), your license to use the software is automatically terminated. You must then delete all copies of the code and any active deployments.
 
-Links: The mention must include a clickable link back to the original KodrixIDE repository.
+5. NO WARRANTY (THE "AS IS" SHIELD)
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND. THE AUTHOR (ZOHAIB) SHALL NOT BE LIABLE FOR ANY DATA LOSS, HARDWARE DAMAGE, OR LEGAL ISSUES ARISING FROM THE USE OF THIS SOFTWARE. YOU USE KODRIXIDE AT YOUR OWN RISK.
 
-4. NO WARRANTY (THE "AS IS" CLAUSE)
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, OR NON-INFRINGEMENT. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF THE USE OF THE SOFTWARE.
+🛠️ Why this update matters:
+Termination Clause: This gives you the legal right to shut them down the moment they stop following your rules.
+
+Reverse Engineering: This protects you if you ever decide to release a compiled version of the app.
+
+Revenue Clause: It clearly defines that "Ads" count as earning, so they can't claim it's "free" just because they aren't charging users directly.
