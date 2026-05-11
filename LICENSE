@@ -1,0 +1,26 @@
+KODRIXIDE SOURCE-AVAILABLE LICENSE
+1. OWNERSHIP AND COPYING
+The source code, brand name, and assets of KodrixIDE are the intellectual property of the author (Zohaib).
+
+No Redistribution: You are strictly prohibited from copying, remixing, or redistributing this repository (or any part of it) to create a competing IDE or software service.
+
+Personal Use: You may download and modify the code for personal learning, local testing, and private development only.
+
+2. COMMERCIAL USE AND REVENUE
+This software is "Free for Personal Use" but requires a Commercial License for any business use.
+
+The Trigger: If you deploy any project using this software online and it generates any revenue (subscriptions, ads, or sales), you are legally required to contact the author to purchase a Commercial License.
+
+Startup Clause: Even if you are not yet profitable, any deployment in a "Production" environment for public use requires written permission from the author.
+
+3. MANDATORY ATTRIBUTION
+If you use this software for any project, you must credit the original work.
+
+Documentation: You must include the following line in your project's documentation (README, Docs, or "About" page):
+
+Powered by KodrixIDE by Zohaib
+
+Links: The mention must include a clickable link back to the original KodrixIDE repository.
+
+4. NO WARRANTY (THE "AS IS" CLAUSE)
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, OR NON-INFRINGEMENT. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF THE USE OF THE SOFTWARE.
