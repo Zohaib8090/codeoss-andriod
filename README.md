@@ -2,11 +2,11 @@
 
 <img src="https://img.shields.io/badge/Platform-Android%2010%2B-3DDC84?style=for-the-badge&logo=android&logoColor=white"/>
 <img src="https://img.shields.io/badge/Architecture-arm64--v8a-FF6B35?style=for-the-badge"/>
-<img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge"/>
+<img src="https://img.shields.io/badge/License-Source--Available-red?style=for-the-badge"/>
 <img src="https://img.shields.io/badge/Status-Beta-yellow?style=for-the-badge"/>
-<img src="https://img.shields.io/github/stars/Zohaib8090/codeoss-android?style=for-the-badge"/>
+<img src="https://img.shields.io/github/stars/Zohaib8090/kodrixide?style=for-the-badge"/>
 
-# CodeOSS Android
+# KodrixIDE
 
 ### A fully standalone, native IDE for Android. No PC. No Termux. No compromises.
 
@@ -16,9 +16,9 @@
 
 ---
 
-## What is CodeOSS Android?
+## What is KodrixIDE?
 
-CodeOSS Android is a **full development environment** that runs entirely on your Android phone. Unlike other mobile code editors, it doesn't require Termux, a remote server, or a PC. Everything runs natively on-device.
+KodrixIDE is a **full development environment** that runs entirely on your Android phone. Unlike other mobile code editors, it doesn't require Termux, a remote server, or a PC. Everything runs natively on-device.
 
 Clone a repo, install npm packages, and run a dev server — all from your phone.
 
@@ -26,10 +26,10 @@ Clone a repo, install npm packages, and run a dev server — all from your phone
 
 ## Installation
 
-1. Download the latest APK from [Releases](https://github.com/Zohaib8090/codeoss-android/releases)
+1. Download the latest APK from [Releases](https://github.com/Zohaib8090/kodrixide/releases)
 2. On your Android phone, go to **Settings → Security → Install unknown apps** and allow your browser or file manager
 3. Open the downloaded APK and tap **Install**
-4. Open CodeOSS Android and start coding
+4. Open KodrixIDE and start coding
 
 > **Minimum requirements:** Android 10+, arm64-v8a device (most modern Android phones), ~500MB free storage
 
@@ -105,113 +105,8 @@ Clone a repo, install npm packages, and run a dev server — all from your phone
 | Express / Node.js | ✅ Working | Full support |
 | Vue + Vite | ✅ Working | Pure JS build |
 | Svelte + Vite | ✅ Working | Pure JS build |
-| Next.js | ✅ Working | Full support via native SWC build |
+| Next.js | ✅ Working | Full support via native babel |
 
 ---
 
 ## Architecture
-
-```
-CodeOSS Android
-├── Kotlin / Jetpack Compose (UI)
-├── JNI Bridge (native-lib.cpp)
-│   ├── PTY Bridge (forkpty → real terminal)
-│   ├── Git Bridge (libgit2 → HTTPS clone/push/pull)
-│   └── DNS Override (Google DNS for Node.js)
-├── Terminal Engine (termux-terminal-emulator)
-│   └── Full VT100/xterm emulation
-├── Bundled Binaries (jniLibs/arm64-v8a)
-│   ├── libnode.so (Node.js runtime)
-│   ├── libgit2.so (Git operations)
-│   ├── libbinding_core_node.so (SWC Core)
-│   ├── libbinding_minifier_node.so (SWC Minifier)
-│   ├── libcurl.so (HTTP/HTTPS)
-│   ├── libssl.so / libcrypto.so (OpenSSL 3.x)
-│   └── libicui18n/uc/data.so (Unicode support)
-└── Zero-Termux Policy (no external dependencies)
-```
-
----
-
-## Known Limitations
-
-| No iOS support | Platform limitation | Not planned |
-| x86 devices not supported | All binaries are arm64-v8a | Not planned |
-
----
-
-## Roadmap
-
-- [x] Terminal with PTY
-- [x] Git clone over HTTPS
-- [x] GitHub OAuth login
-- [x] npm install
-- [x] Vite + React support
-- [x] Built-in browser with DevTools
-- [x] Port forwarding (bore.pub)
-- [x] Multi-file tabs + split screen
-- [x] Source control UI
-- [x] Debug console + Logcat
-- [x] Extension marketplace UI
-- [x] Auto update notifications
-- [x] Node/Git binary update system
-- [x] Termux terminal emulator integration
-- [x] Syntax highlighting
-- [x] Smart keyboard row
-- [ ] LSP autocomplete (downloadable language packs)
-- [ ] AI assistant (bring your own API key)
-- [ ] Android app development support
-- [x] Next.js support (Native SWC support)
-
----
-
-## Found a Bug?
-
-[Open an issue](https://github.com/Zohaib8090/codeoss-android/issues) on GitHub.
-
----
-
-## For Developers — Building from Source
-
-> This section is only for developers who want to modify or build CodeOSS Android. Regular users just need the APK above.
-
-**Prerequisites:**
-- Android Studio Hedgehog or newer
-- Android NDK r25+
-- CMake 3.22+
-- JDK 17+
-
-**Steps:**
-```bash
-git clone https://github.com/Zohaib8090/codeoss-android.git
-cd codeoss-android
-./gradlew assembleDebug
-```
-
-APK will be at `app/build/outputs/apk/debug/app-debug.apk`
-
----
-
-## License
-
-MIT License — see [LICENSE](LICENSE) for details.
-
----
-
-## Acknowledgements
-
-- [libgit2](https://libgit2.org/) — Git operations
-- [Termux](https://termux.dev/) — Binary sources and terminal emulator library
-- [Node.js](https://nodejs.org/) — JavaScript runtime
-- [bore](https://github.com/ekzhang/bore) — Port forwarding
-- [Open VSX](https://open-vsx.org/) — Extension marketplace
-
----
-
-<div align="center">
-
-Made with ❤️ by a 17-year-old developer from Karachi, Pakistan
-
-*If CodeOSS Android helps you, consider [sponsoring](https://github.com/sponsors/Zohaib8090)*
-
-</div>
