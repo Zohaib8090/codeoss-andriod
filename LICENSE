@@ -1,61 +1,92 @@
-KodrixIDE Source-Available License (v2.1)
-1. Ownership & Intellectual Property
-The source code, logic, JNI bridges, and branding of KodrixIDE are the sole intellectual property of Zohaib.
+Business Source License 1.1
 
-No Redistribution: You are strictly prohibited from hosting, mirroring, or redistributing this source code on any platform (GitHub, GitLab, etc.) under your own name or brand.
+Licensor:             Zohaib Baig
+Licensed Work:        KodrixIDE
+                      Copyright (c) 2026 Zohaib Baig. All Rights Reserved.
+Additional Use Grant: You may use the Licensed Work for personal, educational,
+                      and non-commercial development purposes at no charge.
+Change Date:          2029-01-01
+Change License:       MIT License
 
-Anti-Plagiarism Protection: You may not "copy-paste" or extract core logic (such as PTY handling or the libgit2 bridge) for use in competing software products.
+---
 
-No Derivative Works: You may not use this code to build, maintain, or distribute a competing Integrated Development Environment (IDE).
+## Terms
 
-2. Usage & Revenue Model
-KodrixIDE operates on a "Free for Testing, Paid for Earning" model.
+The Licensor hereby grants you the right to copy, modify, create derivative
+works, redistribute, and make non-commercial use of the Licensed Work.
 
-Personal Use: Usage for local development, education, and private testing is Free.
+The Licensor may make an Additional Use Grant, above, permitting limited
+commercial use.
 
-Commercial Trigger: Any public deployment of a service or application powered by KodrixIDE requires a valid Commercial License.
+Effective on the Change Date, or the fourth anniversary of the first publicly
+available distribution of a specific version of the Licensed Work under this
+License, whichever comes first, the Licensor hereby grants you rights under
+the terms of the Change License, and these terms do not apply hereafter.
 
-Revenue Clause: If your project generates any revenue (via advertisements, subscriptions, or direct sales), you are legally required to purchase a Commercial License from the author.
+---
 
-3. Mandatory Attribution
-Transparency is required for all projects utilizing this software. You must include the following credit in your documentation, "About" section, and README:
+## What You CAN Do (Free)
 
-"Powered by KodrixIDE by Zohaib"
+- Use KodrixIDE for personal development and learning
+- Use KodrixIDE to build and test your own private projects
+- Read, study, and learn from the source code
+- Submit bug reports, feature requests, and contributions
+- Use KodrixIDE at school, university, or in a bootcamp
 
-A direct, clickable link to the original KodrixIDE repository must be maintained at all times.
+---
 
-4. Security & Usage Protections
-No Sublicensing: You may not rent, lease, or sell your rights to this software to third parties.
+## What You CANNOT Do Without a Commercial License
 
-Ethical Use: You may not use KodrixIDE for the development of malware, unauthorized network penetration (hacking), or any activity that violates local or international laws.
+- Use KodrixIDE to build or power a product that generates revenue
+- Host KodrixIDE as a service and charge users for access
+- Redistribute or mirror this source code under your own name or brand
+- Build a competing IDE, code editor, or developer tool using this code
+- Remove or hide the KodrixIDE attribution from your project
 
-No Circumvention: Any attempt to bypass license verification or paywalls within the software results in the immediate and permanent termination of your usage rights.
+---
 
-5. Termination of License
-Violation of any terms in this agreement results in the automatic termination of your license. Upon termination, you must:
+## Commercial Use Definition
 
-Cease all use of the software.
+Commercial Use means any use of the Licensed Work in a manner intended
+to generate revenue, directly or indirectly, including but not limited to:
 
-Delete all copies of the source code and binaries.
+- Paid applications or subscriptions powered by KodrixIDE
+- SaaS platforms that incorporate KodrixIDE functionality
+- Consulting or freelance services that deliver KodrixIDE-based products
+- Advertising-supported applications using KodrixIDE
 
-Shut down any active public deployments.
+If your use qualifies as Commercial Use, you must obtain a Commercial
+License from the Licensor before proceeding.
 
-6. Disclaimer of Warranty (The "AS IS" Shield)
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED. THE AUTHOR (ZOHAIB) SHALL NOT BE LIABLE FOR ANY DATA LOSS, HARDWARE DAMAGE, FINANCIAL LOSS, OR LEGAL ISSUES ARISING FROM THE USE OF THIS SOFTWARE. YOU ASSUME ALL RISK ASSOCIATED WITH THE INSTALLATION AND OPERATION OF KODRIXIDE.
+To purchase a Commercial License:
+  Contact: @ZohaibBaig144 on X (Twitter)
+  GitHub:  https://github.com/Zohaib8090/KodrixIDE
 
-How to implement this "Good Looking" License:
-The File: Create a file named exactly LICENSE (no extension) in your root folder. GitHub will automatically give it a special icon and a dedicated sidebar link.
+---
 
-The Header: Use the # symbol for the main title to make it large and bold.
+## Mandatory Attribution
 
-The TL;DR: In your README.md, add this small "Human-Readable" summary so people understand it instantly:
+All projects using KodrixIDE must include the following in their
+README, documentation, or About section:
 
-⚖️ License at a Glance
+  "Built with KodrixIDE — https://github.com/Zohaib8090/KodrixIDE"
 
-Hobbyists: 100% Free to use and test.
+---
 
-Businesses: If you earn money using this, you must pay.
+## Disclaimer of Warranty
 
-Developers: No stealing code or building clones.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+THE LICENSOR SHALL NOT BE LIABLE FOR ANY DAMAGES ARISING FROM
+THE USE OF THIS SOFTWARE. YOU USE IT AT YOUR OWN RISK.
 
-Credits: You must mention KodrixIDE in your docs.
+---
+
+## Change Date Notice
+
+On 2029-01-01, this license automatically converts to the MIT License,
+making KodrixIDE fully open source at that time. This is a commitment
+to the open source community.
+
+---
+
+Full BUSL 1.1 legal text: https://mariadb.com/bsl11/
