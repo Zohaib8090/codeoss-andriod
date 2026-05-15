@@ -1,0 +1,29 @@
+[33mcommit cf5c2fa9661029322a061be37a1c2f1bba1e2069[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m
+Author: zohaib.dev <zohaibbaig144@gmail.com>
+Date:   Thu May 7 14:47:05 2026 +0500
+
+    chore: use git lfs for heavy binaries
+
+[33mcommit 9c398c36e65f04925de0b2f5957dacaa75642d90[m
+Author: zohaib.dev <zohaibbaig144@gmail.com>
+Date:   Thu May 7 14:31:05 2026 +0500
+
+    fix-1
+
+[33mcommit 98250344ea62632072c5590b8257155540fabf0e[m
+Author: zohaib.dev <zohaibbaig144@gmail.com>
+Date:   Tue May 5 08:52:18 2026 +0500
+
+    Fix Next.js Watchpack EACCES and SWC Undefined serialization errors
+
+[33mcommit 4b6861198d539aa08029ae89124c46fcb57bc79c[m
+Author: zohaib.dev <zohaibbaig144@gmail.com>
+Date:   Tue May 5 08:41:04 2026 +0500
+
+    feat: integrate next-swc for Android native Turbopack support
+
+[33mcommit 058807a36453d2ad4fbbfdeff8963a49ac55c9cf[m
+Author: zohaib.dev <zohaibbaig144@gmail.com>
+Date:   Tue May 5 05:57:45 2026 +0500
+
+    fix: only proxy .node native binaries, not JS loaders; clear webpack cache on dev start

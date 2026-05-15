@@ -16,18 +16,19 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application
-        android:name=".CodeOSSApplication"
+        android:name=".KodrixApplication"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
-        android:label="CodeOSS Android"
+        android:label="Kodrix"
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
+        android:extractNativeLibs="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
-            android:label="CodeOSS Android"
+            android:label="Kodrix"
             android:windowSoftInputMode="adjustResize"
             android:theme="@android:style/Theme.Material.NoActionBar">
             <intent-filter>
@@ -38,12 +39,17 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="codeoss" android:host="github-auth" />
+                <data android:scheme="kodrix" android:host="github-auth" />
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ai.GeminiLoginActivity"
+            android:label="Gemini Login"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
+
         <service
-            android:name=".service.CodeOSSService"
+            android:name=".service.KodrixService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="specialUse">

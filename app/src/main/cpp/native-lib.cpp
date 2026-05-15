@@ -30,7 +30,7 @@ static int cert_check_cb(git_cert *cert, int valid, const char *host, void *payl
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_codeossandroid_bridge_GitBridge_cloneRepo(
+Java_com_kodrix_zohaib_bridge_GitBridge_cloneRepo(
         JNIEnv *env,
         jobject,
         jstring url,
@@ -74,7 +74,7 @@ Java_com_codeossandroid_bridge_GitBridge_cloneRepo(
     return env->NewStringUTF(result.c_str());
 }
 
-#define LOG_TAG "CodeOSS-Native"
+#define LOG_TAG "Kodrix-Native"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
@@ -250,7 +250,7 @@ int getaddrinfo(const char *node, const char *service, const struct addrinfo *hi
 
 extern "C"
 JNIEXPORT jint JNICALL
-Java_com_codeossandroid_bridge_PtyBridge_createPty(JNIEnv *env, jobject thiz, jstring shell, jstring bin_path, jstring lib_path, jstring home_path, jint rows, jint cols) {
+Java_com_kodrix_zohaib_bridge_PtyBridge_createPty(JNIEnv *env, jobject thiz, jstring shell, jstring bin_path, jstring lib_path, jstring home_path, jint rows, jint cols) {
     int master_fd;
     pid_t pid;
 
@@ -306,7 +306,7 @@ Java_com_codeossandroid_bridge_PtyBridge_createPty(JNIEnv *env, jobject thiz, js
 
 extern "C"
 JNIEXPORT void JNICALL
-Java_com_codeossandroid_bridge_PtyBridge_setWindowSize(JNIEnv *env, jobject thiz, jint fd, jint rows, jint cols) {
+Java_com_kodrix_zohaib_bridge_PtyBridge_setWindowSize(JNIEnv *env, jobject thiz, jint fd, jint rows, jint cols) {
     struct winsize ws;
     ws.ws_row = rows;
     ws.ws_col = cols;
@@ -316,12 +316,12 @@ Java_com_codeossandroid_bridge_PtyBridge_setWindowSize(JNIEnv *env, jobject thiz
 }
 
 static const JNINativeMethod pty_methods[] = {
-    {"createPty", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;II)I", (void*)Java_com_codeossandroid_bridge_PtyBridge_createPty},
-    {"setWindowSize", "(III)V", (void*)Java_com_codeossandroid_bridge_PtyBridge_setWindowSize}
+    {"createPty", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;II)I", (void*)Java_com_kodrix_zohaib_bridge_PtyBridge_createPty},
+    {"setWindowSize", "(III)V", (void*)Java_com_kodrix_zohaib_bridge_PtyBridge_setWindowSize}
 };
 
 static const JNINativeMethod git_methods[] = {
-    {"cloneRepo", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;", (void*)Java_com_codeossandroid_bridge_GitBridge_cloneRepo}
+    {"cloneRepo", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;", (void*)Java_com_kodrix_zohaib_bridge_GitBridge_cloneRepo}
 };
 
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
@@ -330,13 +330,13 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
         return JNI_ERR;
     }
 
-    jclass ptyClass = env->FindClass("com/codeossandroid/bridge/PtyBridge");
+    jclass ptyClass = env->FindClass("com/kodrix/zohaib/bridge/PtyBridge");
     if (ptyClass) {
         env->RegisterNatives(ptyClass, pty_methods, sizeof(pty_methods) / sizeof(pty_methods[0]));
         env->DeleteLocalRef(ptyClass);
     }
 
-    jclass gitClass = env->FindClass("com/codeossandroid/bridge/GitBridge");
+    jclass gitClass = env->FindClass("com/kodrix/zohaib/bridge/GitBridge");
     if (gitClass) {
         env->RegisterNatives(gitClass, git_methods, sizeof(git_methods) / sizeof(git_methods[0]));
         env->DeleteLocalRef(gitClass);

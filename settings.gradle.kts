@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "CodeOSSAndroid"
+rootProject.name = "KodrixIDE"
 include(":app")

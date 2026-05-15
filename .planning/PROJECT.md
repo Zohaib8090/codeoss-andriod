@@ -44,7 +44,7 @@ Traditional "VS Code on Android" solutions rely on WebViews and local web server
 ### Phase 04: Native Editor Polish [IN PROGRESS]
 - [ ] Implement robust syntax highlighting engine.
 - [/] Add support for multiple tabs (ViewModel logic implemented).
-- [ ] Integrate LSP (Language Server Protocol) via Node.js.
+- [x] Integrate LSP (Language Server Protocol) via Node.js.
 
 ### Phase 05: GitHub OAuth & Source Control [COMPLETED]
 - [x] **Native GitHub OAuth**: Implemented a professional Web Redirect flow using deep links (`codeoss://github-auth`).
@@ -57,6 +57,13 @@ Traditional "VS Code on Android" solutions rely on WebViews and local web server
 - [x] **Progressive UI**: Added live progress bars, instant UI feedback on the Main thread, and single-line compact headers.
 - [x] **Project-Aware State**: Smart detection of installed modules within the active project's `node_modules`.
 - [x] **Sideloading Fallback**: Allowed manual installation of local ZIP extensions for offline or non-authenticated users.
+
+### Phase 07: Debugging & IDE Polish [COMPLETED]
+- [x] **Run & Debug Execution**: Wired up the Debug panel to execute `npm run dev` within the active PTY session.
+- [x] **Next.js Auto-Injection**: Implemented smart detection of Next.js projects via `package.json` to automatically inject the `--no-turbo` flag.
+- [x] **Clone Progress UI**: Added live progress parsing to display a linear progress bar natively in the IDE.
+- [x] **Persistent Notifications**: Integrated Android NotificationManager to display ongoing and successful cloning operations.
+- [x] **Granular Font Controls**: Separated `Terminal` and `Editor` font sizes into independent configurable states.
 
 ## Out of Scope
 - [ ] Web-based UI / WebView support (this is a pure native project).
@@ -75,4 +82,4 @@ Traditional "VS Code on Android" solutions rely on WebViews and local web server
 This document evolves at phase transitions and milestone boundaries.
 
 ---
-*Last updated: 2026-05-04 after Native SWC Integration*
+*Last updated: 2026-05-10 after Debugging & UI Enhancements*

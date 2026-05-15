@@ -1,25 +1,34 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("com.google.gms.google-services")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
-    namespace = "com.codeossandroid"
+    namespace = "com.kodrix.zohaib"
     compileSdk = 34
+    ndkVersion = "30.0.14904198"
 
     defaultConfig {
-        applicationId = "com.codeossandroid"
+        applicationId = "com.kodrix.zohaib"
         minSdk = 28
         targetSdk = 28
-        versionCode = 1
+        versionCode = 2
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
         }
-        ndk {
-            abiFilters += listOf("arm64-v8a")
+    }
+
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+            isUniversalApk = false
         }
     }
 
@@ -41,9 +50,6 @@ android {
     }
     buildFeatures {
         compose = true
-    }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.8"
     }
     sourceSets {
         getByName("main") {
@@ -102,4 +108,8 @@ dependencies {
 
     // Gson for LSP JSON-RPC serialization
     implementation("com.google.code.gson:gson:2.10.1")
+
+    // Firebase
+    implementation(platform("com.google.firebase:firebase-bom:34.13.0"))
+    implementation("com.google.firebase:firebase-analytics")
 }

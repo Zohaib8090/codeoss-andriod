@@ -13,19 +13,19 @@ set_target_properties(git2 PROPERTIES IMPORTED_LOCATION
 # Import dependencies
 add_library(curl SHARED IMPORTED)
 set_target_properties(curl PROPERTIES IMPORTED_LOCATION
-    ${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libcurl4.so)
+    ${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libcurl.so)
 
 add_library(ssl SHARED IMPORTED)
 set_target_properties(ssl PROPERTIES IMPORTED_LOCATION
-    ${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libsl3.so)
+    ${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libssl.so)
 
 add_library(crypto SHARED IMPORTED)
 set_target_properties(crypto PROPERTIES IMPORTED_LOCATION
-    ${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libcrypt3.so)
+    ${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libcrypto.so)
 
 add_library(ssh2 SHARED IMPORTED)
 set_target_properties(ssh2 PROPERTIES IMPORTED_LOCATION
-    ${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libssh21.so)
+    ${CMAKE_SOURCE_DIR}/../jniLibs/${ANDROID_ABI}/libssh2.so)
 
 add_library(
     native-lib
