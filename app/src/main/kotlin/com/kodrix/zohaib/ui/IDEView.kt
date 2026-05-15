@@ -338,6 +338,25 @@ fun AIChatContent(viewModel: TerminalViewModel) {
                     uncheckedTrackColor = Color(0xFF30363D)
                 )
             )
+            if (isAgentMode) {
+                Spacer(Modifier.width(12.dp))
+                val isFastMode by viewModel.agentOrchestrator.isFastMode.collectAsState()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("FAST", color = if (isFastMode) Color(0xFFD29922) else Color.Gray, fontSize = (9 * uiScale).sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(4.dp))
+                    androidx.compose.material3.Switch(
+                        checked = isFastMode,
+                        onCheckedChange = { viewModel.agentOrchestrator.toggleFastMode(it) },
+                        modifier = Modifier.scale(0.6f * uiScale),
+                        colors = androidx.compose.material3.SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = Color(0xFFD29922),
+                            uncheckedThumbColor = Color.Gray,
+                            uncheckedTrackColor = Color(0xFF30363D)
+                        )
+                    )
+                }
+            }
             Spacer(Modifier.weight(1f))
             Box {
                 IconButton(onClick = { showHistoryMenu = true }, modifier = Modifier.size((24 * uiScale).dp)) {
