@@ -32,7 +32,7 @@ Milestone 1: Core Native
 ## Status Summary
 
 Phase 06 (Marketplace & Extension Management) is **complete**. Key accomplishments:
-- **Dynamic Marketplace**: Successfully connected the native app to the `Zohaib8090/codeoss-andriod` repository to fetch plugins.
+- **Dynamic Marketplace**: Successfully connected the native app to the `Zohaib8090/KodrixIDE` repository to fetch plugins.
 - **Progress Tracking**: Implemented real-time progress bars for NPM and ZIP installations directly on the UI thread.
 - **Project Awareness**: App correctly checks the active project's `node_modules` to determine if a package (like the Web LSP) is installed.
 - **Robust Sideloading**: Added manual ZIP installation support and fixed absolute paths for robust NPM execution via `ProcessBuilder`.

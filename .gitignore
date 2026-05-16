@@ -74,4 +74,5 @@ CURRENT_TASK.md
 **/libnext_swc.so
 **/libbinding_core_node.so
 **/libbinding_minifier_node.so
-*.nodeapp/google-services.json
+app/google-services.json
+next-swc-new.node

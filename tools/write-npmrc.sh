@@ -1,6 +1,6 @@
 #!/system/bin/sh
 # Write .npmrc with IP-based registry to bypass DNS entirely
-NPMRC="/data/user/0/com.codeossandroid/files/projects/test/Spoton-web/.npmrc"
+NPMRC="/data/user/0/com.kodrix.zohaib/files/projects/test/Spoton-web/.npmrc"
 
 cat > "$NPMRC" << 'EOF'
 registry=https://registry.npmjs.org/

@@ -43,6 +43,9 @@ class AgentOrchestrator(private val aiManager: AIBackendManager) {
     private val _pendingQuestion = MutableStateFlow<String?>(null)
     val pendingQuestion = _pendingQuestion.asStateFlow()
 
+    private val _activeProject = MutableStateFlow<String?>(null)
+    val activeProject = _activeProject.asStateFlow()
+
     private val maxCycles = 15
     private var currentCycle = 1
 
@@ -72,6 +75,10 @@ class AgentOrchestrator(private val aiManager: AIBackendManager) {
 
     fun setActiveRole(role: AgentRole) {
         _activeRole.value = role
+    }
+
+    fun updateActiveProject(projectName: String?) {
+        _activeProject.value = projectName
     }
 
     fun stopLoop() {
@@ -139,22 +146,34 @@ class AgentOrchestrator(private val aiManager: AIBackendManager) {
                 }
             }
 
-            // Determine next role
-            if (nextRole == AgentRole.CEO) {
-                val nextAgentStr = extractNextAgentFromCEO(response)
-                if (nextAgentStr != null) {
-                    nextRole = nextAgentStr
-                } else {
-                    nextRole = AgentRole.TASK_ASSIGNER
-                }
-                
-                if (response.contains("**Status:** Complete", ignoreCase = true) || response.contains("**Status:** Done", ignoreCase = true)) {
-                    _orchestratorState.value = "Goal Achieved!"
-                    break
-                }
-            } else {
-                currentCycle++
+            // Determine next role from the response
+            val explicitNext = extractNextAgentFromResponse(response)
+            var actualNext = nextRole
+            if (explicitNext != null) {
+                actualNext = explicitNext
+            } else if (nextRole == AgentRole.CEO) {
+                actualNext = AgentRole.TASK_ASSIGNER
+            } else if (nextRole == AgentRole.TASK_ASSIGNER) {
+                actualNext = AgentRole.DEV
+            } else if (nextRole == AgentRole.DEV) {
+                actualNext = AgentRole.CEO
             }
+
+            // UI Hint: Mark the next agent as starting
+            if (actualNext != nextRole) {
+                val handoffWorkspaces = _workspaces.value.toMutableMap()
+                handoffWorkspaces[actualNext] = "## ${actualNext.displayName}\n[Agent is starting to think...]"
+                _workspaces.value = handoffWorkspaces
+            }
+            
+            nextRole = actualNext
+
+            if (nextRole == AgentRole.CEO && (response.contains("**Status:** Complete", ignoreCase = true) || response.contains("**Status:** Done", ignoreCase = true))) {
+                _orchestratorState.value = "Goal Achieved!"
+                break
+            }
+
+            currentCycle++
             
             val loopDelay = if (_isFastMode.value) 500L else 2000L
             delay(loopDelay)
@@ -215,7 +234,11 @@ class AgentOrchestrator(private val aiManager: AIBackendManager) {
     private fun createFile(path: String?, content: String): String {
         if (path == null) return "Error: Missing path"
         return try {
-            val file = java.io.File(aiManager.application.filesDir, path)
+            val baseDir = if (_activeProject.value != null) {
+                java.io.File(aiManager.application.filesDir, "projects/${_activeProject.value}")
+            } else aiManager.application.filesDir
+            
+            val file = java.io.File(baseDir, path)
             file.parentFile?.mkdirs()
             file.writeText(content)
             "Success: Created file at $path"
@@ -227,16 +250,24 @@ class AgentOrchestrator(private val aiManager: AIBackendManager) {
     private fun readFile(path: String?): String {
         if (path == null) return "Error: Missing path"
         return try {
-            val file = java.io.File(aiManager.application.filesDir, path)
+            val baseDir = if (_activeProject.value != null) {
+                java.io.File(aiManager.application.filesDir, "projects/${_activeProject.value}")
+            } else aiManager.application.filesDir
+            
+            val file = java.io.File(baseDir, path)
             if (file.exists()) "Content of $path:\n```\n${file.readText()}\n```"
-            else "Error: File not found"
+            else "Error: File not found at $path"
         } catch (e: Exception) {
             "Error: ${e.message}"
         }
     }
 
     private fun listDir(path: String?): String {
-        val dir = java.io.File(aiManager.application.filesDir, path ?: "")
+        val baseDir = if (_activeProject.value != null) {
+            java.io.File(aiManager.application.filesDir, "projects/${_activeProject.value}")
+        } else aiManager.application.filesDir
+        
+        val dir = java.io.File(baseDir, path ?: "")
         return try {
             val files = dir.listFiles()?.joinToString("\n") { 
                 if (it.isDirectory) "[DIR] ${it.name}" else "[FILE] ${it.name}"
@@ -249,11 +280,21 @@ class AgentOrchestrator(private val aiManager: AIBackendManager) {
 
     private suspend fun executeCommand(cmd: String): String {
         return try {
+            val baseDir = if (_activeProject.value != null) {
+                java.io.File(aiManager.application.filesDir, "projects/${_activeProject.value}")
+            } else aiManager.application.filesDir
+            
             val pb = ProcessBuilder("/system/bin/sh", "-c", cmd)
-            pb.directory(aiManager.application.filesDir)
+            pb.directory(baseDir)
             val env = pb.environment()
-            val binDir = aiManager.application.filesDir.absolutePath
-            env["PATH"] = "$binDir/usr/bin:$binDir/bin:/system/bin:/system/xbin"
+            val filesDir = aiManager.application.filesDir.absolutePath
+            val nativeLibPath = aiManager.application.applicationInfo.nativeLibraryDir
+            
+            // Critical: Ensure agents have access to our standardized binaries
+            env["PATH"] = "$filesDir/usr/bin:$filesDir/bin:/system/bin:/system/xbin"
+            env["LD_LIBRARY_PATH"] = "$nativeLibPath:$filesDir/lib"
+            env["HOME"] = filesDir
+            env["USER"] = "kodrix"
             
             val process = pb.start()
             val output = process.inputStream.bufferedReader().readText()
@@ -281,7 +322,14 @@ class AgentOrchestrator(private val aiManager: AIBackendManager) {
         val isFast = _isFastMode.value
         val sb = StringBuilder()
         sb.append("You are the ${role.displayName} in a professional AI team.\n")
-        sb.append("The User is the CTO. You report to the CEO and the CTO.\n\n")
+        sb.append("The User is the CTO. You report to the CEO and the CTO.\n")
+        val proj = _activeProject.value
+        if (proj != null) {
+            sb.append("ACTIVE PROJECT: $proj\n")
+            sb.append("All tools (create_file, etc.) are relative to the project root: /files/projects/$proj/\n\n")
+        } else {
+            sb.append("NO ACTIVE PROJECT: Tools are relative to /files/\n\n")
+        }
         
         if (isFast) {
             sb.append("FAST MODE ACTIVE: Be extremely direct. Use tools immediately. Skip summaries. No conversational filler.\n\n")
@@ -332,7 +380,7 @@ class AgentOrchestrator(private val aiManager: AIBackendManager) {
         return sb.toString()
     }
 
-    private fun extractNextAgentFromCEO(content: String): AgentRole? {
+    private fun extractNextAgentFromResponse(content: String): AgentRole? {
         val regex = Regex("\\*\\*Next Agent:\\*\\*\\s*([\\w\\s\\(\\)]+)", RegexOption.IGNORE_CASE)
         val match = regex.find(content)
         val roleStr = match?.groupValues?.get(1)?.trim()?.uppercase() ?: return null

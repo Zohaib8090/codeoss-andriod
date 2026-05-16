@@ -104,17 +104,17 @@ static void init() {
 
 static const char* resolve_helper(const char* path) {
     if (!path) return nullptr;
-    if (strstr(path, "git-remote-https")) return "libgit-remote-https.so";
-    if (strstr(path, "git-remote-http")) return "libgit-remote-http.so";
-    if (strstr(path, "git-remote-ftp")) return "libgit-remote-ftp.so";
-    if (strstr(path, "git-remote-ftps")) return "libgit-remote-ftps.so";
+    if (strstr(path, "git-remote-https")) return "libgit_remote_http_bin.so";
+    if (strstr(path, "git-remote-http")) return "libgit_remote_http_bin.so";
+    if (strstr(path, "git-remote-ftp")) return "libgit_remote_ftp_bin.so";
+    if (strstr(path, "git-remote-ftps")) return "libgit_remote_ftps_bin.so";
     
     // Also handle node and git binaries for subshells
     const char* last_slash = strrchr(path, '/');
     const char* basename = last_slash ? last_slash + 1 : path;
     
     if (strcmp(basename, "node") == 0) return "libnode.so";
-    if (strcmp(basename, "git") == 0) return "libgit.so";
+    if (strcmp(basename, "git") == 0) return "libgit_bin.so";
     
     return nullptr;
 }

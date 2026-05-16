@@ -72,8 +72,11 @@ object NativeLibLoader {
                 "libpcre28.so",
                 "libnode.so",
                 "libgit2.so",
-                "libgit.so",
-                "libgit_remote_http.so",
+                "libgit_bin.so",
+                "libgit_remote_http_bin.so",
+                "libnghttp3.so",
+                "libngtcp2.so",
+                "libngtcp2_crypto_ossl.so",
                 "libnative-lib.so"
             )
 

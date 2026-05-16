@@ -10,8 +10,8 @@ Integrated the native PTY bridge with the Jetpack Compose UI.
 - Implemented background reading of the PTY master FD using Coroutines.
 
 ## Key Files Created/Modified
-- [PtyBridge.kt](file:///c:/Users/zohai/Downloads/my code/codeoss-android/app/src/main/kotlin/com/zohaib/codeossandriod/PtyBridge.kt) [NEW]
-- [MainActivity.kt](file:///c:/Users/zohai/Downloads/my code/codeoss-android/app/src/main/kotlin/com/zohaib/codeossandriod/MainActivity.kt) [MODIFY]
+- [PtyBridge.kt](file:///c:/Users/zohai/Downloads/my code/KodrixIDE/app/src/main/kotlin/com/zohaib/codeossandriod/PtyBridge.kt) [NEW]
+- [MainActivity.kt](file:///c:/Users/zohai/Downloads/my code/KodrixIDE/app/src/main/kotlin/com/zohaib/codeossandriod/MainActivity.kt) [MODIFY]
 
 ## Self-Check
 - [x] Kotlin wrapper loads native library

@@ -9,9 +9,9 @@ Implemented the native PTY bridge using NDK and JNI.
 - Implemented `app/src/main/cpp/native-lib.cpp` with `forkpty` support and JNI entry points.
 
 ## Key Files Created/Modified
-- [CMakeLists.txt](file:///c:/Users/zohai/Downloads/my code/codeoss-android/app/src/main/cpp/CMakeLists.txt) [NEW]
-- [native-lib.cpp](file:///c:/Users/zohai/Downloads/my code/codeoss-android/app/src/main/cpp/native-lib.cpp) [NEW]
-- [build.gradle.kts](file:///c:/Users/zohai/Downloads/my code/codeoss-android/app/build.gradle.kts) [MODIFY]
+- [CMakeLists.txt](file:///c:/Users/zohai/Downloads/my code/KodrixIDE/app/src/main/cpp/CMakeLists.txt) [NEW]
+- [native-lib.cpp](file:///c:/Users/zohai/Downloads/my code/KodrixIDE/app/src/main/cpp/native-lib.cpp) [NEW]
+- [build.gradle.kts](file:///c:/Users/zohai/Downloads/my code/KodrixIDE/app/build.gradle.kts) [MODIFY]
 
 ## Self-Check
 - [x] NDK build configured

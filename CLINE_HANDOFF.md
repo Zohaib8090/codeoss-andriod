@@ -26,8 +26,8 @@ Currently, the IDE can detect errors, but we need it to suggest code.
 4. **Injection:** When the user taps a suggestion, inject that text directly into the `CodeEditor`'s `TextFieldValue` at the cursor position.
 
 ## Key Files to Review
-- `app/src/main/kotlin/com/codeossandroid/viewmodel/TerminalViewModel.kt` (LSP Lifecycle and state)
-- `app/src/main/kotlin/com/codeossandroid/lsp/LspClient.kt` (JSON-RPC communication bridge)
+- `app/src/main/kotlin/com.kodrix.zohaib/viewmodel/TerminalViewModel.kt` (LSP Lifecycle and state)
+- `app/src/main/kotlin/com.kodrix.zohaib/lsp/LspClient.kt` (JSON-RPC communication bridge)
 
 You are authorized to execute terminal commands to build (`.\gradlew.bat assembleDebug`) and push the APK to the attached ADB device to test your changes. 
 

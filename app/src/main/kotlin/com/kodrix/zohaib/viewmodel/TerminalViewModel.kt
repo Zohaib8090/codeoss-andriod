@@ -125,6 +125,9 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private val _activeSessionId = MutableStateFlow<String?>(null)
     val activeSessionId = _activeSessionId.asStateFlow()
 
+    private val _showThirdPartyDialog = MutableStateFlow(false)
+    val showThirdPartyDialog = _showThirdPartyDialog.asStateFlow()
+
     private fun saveAiHistory() {
         try {
             val file = java.io.File(getApplication<Application>().filesDir, "ai_history_v2.json")
@@ -283,6 +286,18 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     init {
         loadAiHistory()
         
+        // Sync active project to agent
+        viewModelScope.launch {
+            _activeProject.collect { proj ->
+                agentOrchestrator.updateActiveProject(proj)
+            }
+        }
+        
+        // Show third-party dialog on first run
+        if (!prefs.getBoolean("third_party_accepted", false)) {
+            _showThirdPartyDialog.value = true
+        }
+        
         // AI Status Notifications (Custom User Messages)
         viewModelScope.launch {
             aiManager.status.collect { status ->
@@ -297,6 +312,11 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 }
             }
         }
+    }
+
+    fun acceptThirdPartyServices() {
+        prefs.edit().putBoolean("third_party_accepted", true).apply()
+        _showThirdPartyDialog.value = false
     }
 
     fun sendAiMessage(prompt: String, attachedFileName: String? = null, attachedFileContent: String? = null, attachedFileUri: android.net.Uri? = null) {
@@ -378,10 +398,10 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             )
         }.firstOrNull { it.exists() }
 
-        Log.d("CodeOSS", "LSP: Searching for ${binaryNames.joinToString("/")} — found=${lspBin?.absolutePath}")
+        Log.d("Kodrix", "LSP: Searching for ${binaryNames.joinToString("/")} — found=${lspBin?.absolutePath}")
 
         if (lspBin == null) {
-            Log.w("CodeOSS", "LSP binary not found for $langId, triggering on-demand install...")
+            Log.w("Kodrix", "LSP binary not found for $langId, triggering on-demand install...")
             installSpecificLSP(langId, file)
             return
         }
@@ -392,15 +412,15 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         // Use findBinary to locate node dynamically
         val nodeBin = findBinary(getApplication<Application>().filesDir, "node")?.absolutePath
             ?: run {
-                Log.e("CodeOSS", "LSP: node binary not found, cannot start LSP")
+                Log.e("Kodrix", "LSP: node binary not found, cannot start LSP")
                 return
             }
-        Log.d("CodeOSS", "LSP: nodeBin=$nodeBin")
+        Log.d("Kodrix", "LSP: nodeBin=$nodeBin")
 
         val dnsOverridePath = java.io.File(filesDir, "dns-override.js").absolutePath
         val env = mapOf(
             "HOME" to filesDir,
-            "USER" to "codeoss",
+            "USER" to "kodrix",
             "TMPDIR" to java.io.File(filesDir, "tmp").apply { mkdirs() }.absolutePath,
             "LD_LIBRARY_PATH" to "$nativeLibPath:$libLinksDir",
             "NODE_PATH" to "$filesDir/lsp/node_modules:$filesDir/npm_pkg/node_modules",
@@ -420,7 +440,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                   "export NODE_OPTIONS='--require $dnsOverridePath'; " +
                   "exec '$nodeBin' '$lspBinPath' --stdio"
 
-        Log.d("CodeOSS", "LSP command: $cmd")
+        Log.d("Kodrix", "LSP command: $cmd")
 
         val client = LspClient(
             command = listOf("/system/bin/sh", "-c", cmd),
@@ -431,7 +451,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         client.onDiagnosticsReceived = { params ->
             viewModelScope.launch(Dispatchers.Main) {
                 _lspDiagnostics.value = params.diagnostics
-                Log.d("CodeOSS", "LSP Diagnostics: ${params.diagnostics.size} issues")
+                Log.d("Kodrix", "LSP Diagnostics: ${params.diagnostics.size} issues")
             }
         }
 
@@ -463,12 +483,12 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 )
                 val resp = client.request("initialize", initParams)
                 if (resp == null) {
-                    Log.e("CodeOSS", "LSP: initialize request TIMED OUT for .$ext")
+                    Log.e("Kodrix", "LSP: initialize request TIMED OUT for .$ext")
                     withContext(Dispatchers.Main) {
                         android.widget.Toast.makeText(getApplication(), "LSP failed to initialize (Timeout)", android.widget.Toast.LENGTH_SHORT).show()
                     }
                 } else {
-                    Log.d("CodeOSS", "LSP: initialize response received for .$ext")
+                    Log.d("Kodrix", "LSP: initialize response received for .$ext")
                 }
                 client.notify("initialized", emptyMap<String, String>())
 
@@ -482,7 +502,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     )
                 )
                 client.notify("textDocument/didOpen", openParams)
-                Log.d("CodeOSS", "LSP started and initialized for .$ext files")
+                Log.d("Kodrix", "LSP started and initialized for .$ext files")
 
                 withContext(Dispatchers.Main) {
                     android.widget.Toast.makeText(
@@ -491,7 +511,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     ).show()
                 }
             } catch (e: Exception) {
-                Log.e("CodeOSS", "LSP initialization failed", e)
+                Log.e("Kodrix", "LSP initialization failed", e)
                 withContext(Dispatchers.Main) {
                     android.widget.Toast.makeText(
                         getApplication(), "❌ $friendlyLang LSP failed to start",
@@ -539,7 +559,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             val dnsOverridePath = java.io.File(filesDir, "dns-override.js").absolutePath
 
             if (!java.io.File(nodeBin).exists() || !java.io.File(npmCli).exists()) {
-                Log.e("CodeOSS", "Node/NPM not found, cannot install $friendlyName")
+                Log.e("Kodrix", "Node/NPM not found, cannot install $friendlyName")
                 return@launch
             }
 
@@ -564,16 +584,16 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 val pb = ProcessBuilder(cmd)
                 pb.directory(lspDir)
                 pb.environment()["HOME"] = filesDir.absolutePath
-                pb.environment()["USER"] = "codeoss"
+                pb.environment()["USER"] = "kodrix"
                 pb.environment()["TMPDIR"] = java.io.File(filesDir, "tmp").apply { mkdirs() }.absolutePath
                 pb.redirectErrorStream(true)
 
                 val process = pb.start()
-                process.inputStream.bufferedReader().forEachLine { Log.d("CodeOSS", "LSP Install: $it") }
+                process.inputStream.bufferedReader().forEachLine { Log.d("Kodrix", "LSP Install: $it") }
                 val exitCode = process.waitFor()
 
                 if (exitCode == 0) {
-                    Log.d("CodeOSS", "$friendlyName installed successfully")
+                    Log.d("Kodrix", "$friendlyName installed successfully")
                     withContext(Dispatchers.Main) {
                         android.widget.Toast.makeText(
                             getApplication(),
@@ -584,7 +604,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                         openFile(fileToOpenAfter)
                     }
                 } else {
-                    Log.e("CodeOSS", "$friendlyName install failed with exit $exitCode")
+                    Log.e("Kodrix", "$friendlyName install failed with exit $exitCode")
                     withContext(Dispatchers.Main) {
                         android.widget.Toast.makeText(
                             getApplication(),
@@ -594,7 +614,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     }
                 }
             } catch (e: Exception) {
-                Log.e("CodeOSS", "Failed to install $friendlyName", e)
+                Log.e("Kodrix", "Failed to install $friendlyName", e)
             }
         }
     }
@@ -660,21 +680,21 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     }
                 }
                 _completionItems.value = items
-                Log.d("CodeOSS", "LSP: Success! Received ${items.size} completion items for .$ext")
+                Log.d("Kodrix", "LSP: Success! Received ${items.size} completion items for .$ext")
                 if (items.isNotEmpty()) {
                     withContext(Dispatchers.Main) {
                         android.widget.Toast.makeText(getApplication(), "Found ${items.size} suggestions", android.widget.Toast.LENGTH_SHORT).show()
                     }
                 } else {
-                    Log.d("CodeOSS", "LSP: Server returned 0 items for .$ext at $line:$character")
+                    Log.d("Kodrix", "LSP: Server returned 0 items for .$ext at $line:$character")
                 }
             } else {
                 _completionItems.value = emptyList()
-                Log.d("CodeOSS", "LSP: No result/null returned for .$ext at $line:$character")
+                Log.d("Kodrix", "LSP: No result/null returned for .$ext at $line:$character")
             }
         } catch (e: Exception) {
             if (e !is kotlinx.coroutines.CancellationException) {
-                Log.e("CodeOSS", "LSP: Completion request FAILED", e)
+                Log.e("Kodrix", "LSP: Completion request FAILED", e)
             }
             _completionItems.value = emptyList()
         }
@@ -740,7 +760,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 val params = "client_id=$clientId&client_secret=$clientSecret&code=$code"
                 conn.outputStream.write(params.toByteArray())
                 val response = conn.inputStream.bufferedReader().readText()
-                Log.d("CodeOSS", "OAuth Response: $response")
+                Log.d("Kodrix", "OAuth Response: $response")
                 val json = org.json.JSONObject(response)
                 val token = json.optString("access_token")
                 if (token.isNotEmpty()) {
@@ -749,7 +769,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     userConn.setRequestProperty("Authorization", "token $token")
                     userConn.setRequestProperty("Accept", "application/vnd.github.v3+json")
                     val userResponse = userConn.inputStream.bufferedReader().readText()
-                    Log.d("CodeOSS", "User Response: $userResponse")
+                    Log.d("Kodrix", "User Response: $userResponse")
                     val userJson = org.json.JSONObject(userResponse)
                     val login = userJson.getString("login")
                     withContext(Dispatchers.Main) {
@@ -759,13 +779,13 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     }
                 } else {
                     val error = json.optString("error_description", "Unknown error")
-                    Log.e("CodeOSS", "OAuth failed: $response")
+                    Log.e("Kodrix", "OAuth failed: $response")
                     withContext(Dispatchers.Main) {
                         android.widget.Toast.makeText(getApplication(), "Login Failed: $error", android.widget.Toast.LENGTH_LONG).show()
                     }
                 }
             } catch (e: Exception) {
-                Log.e("CodeOSS", "GitHub callback failed", e)
+                Log.e("Kodrix", "GitHub callback failed", e)
                 withContext(Dispatchers.Main) {
                     android.widget.Toast.makeText(getApplication(), "Error: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
                 }
@@ -859,7 +879,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             getApplication<Application>().startActivity(intent)
         } catch (e: Exception) {
-            Log.e("CodeOSS", "Failed to open external browser", e)
+            Log.e("Kodrix", "Failed to open external browser", e)
         }
     }
 
@@ -895,44 +915,44 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     private fun testNetwork() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                Log.i("CodeOSS", "Network Test: Starting...")
+                Log.i("Kodrix", "Network Test: Starting...")
                 
                 // Test 1: TCP to 8.8.8.8:53 (Google DNS)
-                Log.i("CodeOSS", "Network Test: TCP to 8.8.8.8:53...")
+                Log.i("Kodrix", "Network Test: TCP to 8.8.8.8:53...")
                 val socket = java.net.Socket()
                 try {
                     socket.connect(java.net.InetSocketAddress("8.8.8.8", 53), 5000)
-                    Log.i("CodeOSS", "Network Test: TCP to 8.8.8.8:53 SUCCESS")
+                    Log.i("Kodrix", "Network Test: TCP to 8.8.8.8:53 SUCCESS")
                     socket.close()
                 } catch (e: Exception) {
-                    Log.e("CodeOSS", "Network Test: TCP to 8.8.8.8:53 FAILED: ${e.message}")
+                    Log.e("Kodrix", "Network Test: TCP to 8.8.8.8:53 FAILED: ${e.message}")
                 }
 
                 // Test 2: DNS lookup for google.com
-                Log.i("CodeOSS", "Network Test: DNS lookup for google.com...")
+                Log.i("Kodrix", "Network Test: DNS lookup for google.com...")
                 try {
                     val addr = java.net.InetAddress.getByName("google.com")
-                    Log.i("CodeOSS", "Network Test: DNS lookup SUCCESS: ${addr.hostAddress}")
+                    Log.i("Kodrix", "Network Test: DNS lookup SUCCESS: ${addr.hostAddress}")
                 } catch (e: Exception) {
-                    Log.e("CodeOSS", "Network Test: DNS lookup FAILED: ${e.message}")
+                    Log.e("Kodrix", "Network Test: DNS lookup FAILED: ${e.message}")
                 }
 
                 // Test 3: HTTPS request
-                Log.i("CodeOSS", "Network Test: HTTPS to google.com...")
+                Log.i("Kodrix", "Network Test: HTTPS to google.com...")
                 try {
                     val url = java.net.URL("https://www.google.com")
                     val conn = url.openConnection() as java.net.HttpURLConnection
                     conn.connectTimeout = 5000
                     conn.readTimeout = 5000
                     val responseCode = conn.responseCode
-                    Log.i("CodeOSS", "Network Test: HTTPS SUCCESS, code: $responseCode")
+                    Log.i("Kodrix", "Network Test: HTTPS SUCCESS, code: $responseCode")
                     conn.disconnect()
                 } catch (e: Exception) {
-                    Log.e("CodeOSS", "Network Test: HTTPS FAILED: ${e.message}")
+                    Log.e("Kodrix", "Network Test: HTTPS FAILED: ${e.message}")
                 }
                 
             } catch (e: Exception) {
-                Log.e("CodeOSS", "Network Test: GLOBAL FAILURE", e)
+                Log.e("Kodrix", "Network Test: GLOBAL FAILURE", e)
             }
         }
     }
@@ -942,7 +962,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
      * Checks common known paths first for speed, then falls back to a full `find` search.
      */
     private fun findBinary(filesDir: java.io.File, binaryName: String): java.io.File? {
-        Log.d("CodeOSS", "findBinary: searching for $binaryName in ${filesDir.absolutePath}")
+        Log.d("Kodrix", "findBinary: searching for $binaryName in ${filesDir.absolutePath}")
         
         // Check common locations first (fast path)
         val commonPaths = listOf(
@@ -955,9 +975,9 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         )
         for (path in commonPaths) {
             val f = java.io.File(filesDir, path)
-            Log.v("CodeOSS", "findBinary check: ${f.absolutePath} exists=${f.exists()} canRead=${f.canRead()}")
+            Log.v("Kodrix", "findBinary check: ${f.absolutePath} exists=${f.exists()} canRead=${f.canRead()}")
             if (f.exists()) {
-                Log.d("CodeOSS", "findBinary: $binaryName found at ${f.absolutePath} (fast path)")
+                Log.d("Kodrix", "findBinary: $binaryName found at ${f.absolutePath} (fast path)")
                 return f
             }
         }
@@ -965,20 +985,20 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         return try {
             val findCmd = listOf("/system/bin/find", filesDir.absolutePath,
                 "-maxdepth", "6", "-name", binaryName, "-type", "f")
-            Log.d("CodeOSS", "findBinary: running fallback find: ${findCmd.joinToString(" ")}")
+            Log.d("Kodrix", "findBinary: running fallback find: ${findCmd.joinToString(" ")}")
             val pb = ProcessBuilder(findCmd)
             pb.redirectErrorStream(true)
             val result = pb.start().inputStream.bufferedReader().readLine()
             if (!result.isNullOrBlank()) {
                 val f = java.io.File(result.trim())
-                Log.d("CodeOSS", "findBinary: $binaryName found at ${f.absolutePath} (find scan)")
+                Log.d("Kodrix", "findBinary: $binaryName found at ${f.absolutePath} (find scan)")
                 f
             } else {
-                Log.w("CodeOSS", "findBinary: $binaryName not found in ${filesDir.absolutePath}")
+                Log.w("Kodrix", "findBinary: $binaryName not found in ${filesDir.absolutePath}")
                 null
             }
         } catch (e: Exception) {
-            Log.e("CodeOSS", "findBinary: search failed for $binaryName", e)
+            Log.e("Kodrix", "findBinary: search failed for $binaryName", e)
             null
         }
     }
@@ -993,11 +1013,11 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             val tsLspBin = java.io.File(lspDir, "node_modules/.bin/typescript-language-server")
             
             if (tsLspBin.exists() && successMarker.exists()) {
-                Log.d("CodeOSS", "LSPs already installed and verified")
+                Log.d("Kodrix", "LSPs already installed and verified")
                 return@launch
             }
 
-            Log.d("CodeOSS", "LSP missing or incomplete, starting install/retry...")
+            Log.d("Kodrix", "LSP missing or incomplete, starting install/retry...")
             lspDir.mkdirs()
             
             val packageJson = java.io.File(lspDir, "package.json")
@@ -1034,7 +1054,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 return@launch
             }
 
-            Log.d("CodeOSS", "LSP install using: node=${nodeBin.absolutePath}, npm=${npmScript.absolutePath}")
+            Log.d("Kodrix", "LSP install using: node=${nodeBin.absolutePath}, npm=${npmScript.absolutePath}")
 
             withContext(Dispatchers.Main) {
                 android.widget.Toast.makeText(getApplication(), "⚙️ Installing Language Servers...", android.widget.Toast.LENGTH_LONG).show()
@@ -1059,7 +1079,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 pb.directory(lspDir)
                 val env = pb.environment()
                 env["HOME"] = binDir
-                env["USER"] = "codeoss"
+                env["USER"] = "kodrix"
                 env["TMPDIR"] = java.io.File(filesDir, "tmp").apply { mkdirs() }.absolutePath
                 env["LD_LIBRARY_PATH"] = "$nativeLibPath:$libLinksDir"
                 env["NODE_PATH"] = ".:$binDir/npm_pkg/node_modules"
@@ -1073,7 +1093,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 var line: String?
                 var lastToastTime = 0L
                 while (reader.readLine().also { line = it } != null) {
-                    Log.d("CodeOSS", "LSP Install: $line")
+                    Log.d("Kodrix", "LSP Install: $line")
                     // Show periodic progress toasts without spamming
                     val now = System.currentTimeMillis()
                     val currentLine = line ?: ""
@@ -1104,7 +1124,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     }
                 }
             } catch (e: Exception) {
-                Log.e("CodeOSS", "Failed to run LSP install", e)
+                Log.e("Kodrix", "Failed to run LSP install", e)
                 withContext(Dispatchers.Main) {
                     android.widget.Toast.makeText(getApplication(), "❌ LSP install error: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
                 }
@@ -1212,10 +1232,10 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
                 val currentVersion = packageInfo.versionName ?: "1.0"
                 
-                val url = java.net.URL("https://api.github.com/repos/Zohaib8090/codeoss-android/releases/latest")
+                val url = java.net.URL("https://api.github.com/repos/Zohaib8090/KodrixIDE/releases/latest")
                 connection = url.openConnection() as java.net.HttpURLConnection
                 connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
-                connection.setRequestProperty("User-Agent", "CodeOSS-Android-App")
+                connection.setRequestProperty("User-Agent", "Kodrix-IDE-App")
                 
                 val conn = connection ?: return@launch
                 val responseCode = conn.responseCode
@@ -1241,7 +1261,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     }
                 }
             } catch (e: Exception) {
-                Log.e("CodeOSS", "Update check failed", e)
+                Log.e("Kodrix", "Update check failed", e)
             } finally {
                 connection?.disconnect()
             }
@@ -1394,7 +1414,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 }
                 _marketplaceExtensions.value = extensions
             } catch (e: Exception) {
-                Log.e("CodeOSS", "Marketplace search failed", e)
+                Log.e("Kodrix", "Marketplace search failed", e)
             } finally {
                 _isSearchingExtensions.value = false
                 connection?.disconnect()
@@ -1463,7 +1483,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val npmCli = java.io.File(getApplication<Application>().filesDir, "npm_pkg/bin/npm-cli.js").absolutePath
         val libLinksDir = java.io.File(filesDir, "lib").absolutePath
         
-        Log.d("CodeOSS", "NPM EXEC: node=$nodeBin npm=$npmCli cwd=${targetDir.absolutePath}")
+        Log.d("Kodrix", "NPM EXEC: node=$nodeBin npm=$npmCli cwd=${targetDir.absolutePath}")
         
         val pb = ProcessBuilder(nodeBin, npmCli, *args)
         pb.directory(targetDir)
@@ -1471,7 +1491,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val dnsOverridePath = java.io.File(getApplication<Application>().filesDir, "dns-override.js").absolutePath
         val env = pb.environment()
         env["HOME"] = filesDir
-        env["USER"] = "codeoss"
+        env["USER"] = "kodrix"
         env["TMPDIR"] = java.io.File(filesDir, "tmp").apply { mkdirs() }.absolutePath
         env["LD_LIBRARY_PATH"] = "$nativeLibPath:$libLinksDir"
         env["NODE_PATH"] = ".:$filesDir/npm_pkg/node_modules"
@@ -1484,7 +1504,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         return try {
             pb.start()
         } catch (e: Exception) {
-            Log.e("CodeOSS", "NPM start failed", e)
+            Log.e("Kodrix", "NPM start failed", e)
             null
         }
     }
@@ -1494,7 +1514,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         // Note: Global extensions (npm) don't strictly require an active project, but others might.
         // We will allow npm installation even without an active project.
         if (proj == null && extension.type != "npm") {
-            Log.w("CodeOSS", "Install aborted: No active project")
+            Log.w("Kodrix", "Install aborted: No active project")
             viewModelScope.launch(Dispatchers.Main) {
                 android.widget.Toast.makeText(getApplication(), "Please open a project first!", android.widget.Toast.LENGTH_LONG).show()
             }
@@ -1527,7 +1547,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                             var line: String?
                             var simulatedProgress = 0.1f
                             while (reader.readLine().also { line = it } != null) {
-                                Log.d("CodeOSS", "NPM Out: $line")
+                                Log.d("Kodrix", "NPM Out: $line")
                                 val status = line?.take(40) ?: ""
                                 _binaryUpdateStatus.value = "NPM: $status"
                                 // Simulating progress for NPM since it doesn't give clean percentages
@@ -1593,7 +1613,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     scanMarketplace()
                 }
             } catch (e: Exception) {
-                Log.e("CodeOSS", "Local install failed", e)
+                Log.e("Kodrix", "Local install failed", e)
                 withContext(Dispatchers.Main) {
                     android.widget.Toast.makeText(context, "Install failed: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
                 }
@@ -1622,7 +1642,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     fun checkBinaryUpdates() {
         viewModelScope.launch(Dispatchers.IO) {
             _binaryUpdateStatus.value = "Checking..."
-            val registryUrl = "https://raw.githubusercontent.com/Zohaib8090/codeoss-andriod/main/binaries.json"
+            val registryUrl = "https://raw.githubusercontent.com/Zohaib8090/KodrixIDE/main/binaries.json"
             try {
                 val update = com.kodrix.zohaib.bridge.BinaryUpdater.checkUpdates(registryUrl)
                 if (update != null) {
@@ -1646,7 +1666,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
             _isUpdatingBinaries.value = true
             try {
                 _binaryUpdateStatus.value = "Downloading Node.js..."
-                val registryUrl = "https://raw.githubusercontent.com/Zohaib8090/codeoss-andriod/main/binaries.json"
+                val registryUrl = "https://raw.githubusercontent.com/Zohaib8090/KodrixIDE/main/binaries.json"
                 val update = com.kodrix.zohaib.bridge.BinaryUpdater.checkUpdates(registryUrl) ?: return@launch
                 
                 val successNode = com.kodrix.zohaib.bridge.BinaryUpdater.downloadAndInstall(getApplication(), update.nodeUrl, "usr") { p, d, t ->
@@ -1740,7 +1760,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     }
                 }
             } catch (e: Exception) {
-                Log.e("CodeOSS", "Bore failed for port $port", e)
+                Log.e("Kodrix", "Bore failed for port $port", e)
                 _activeTunnels.value = _activeTunnels.value.map {
                     if (it.port == port) it.copy(url = "Error: ${e.message}") else it
                 }
@@ -1757,7 +1777,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     tunnel.process.destroyForcibly()
                 }
             } catch (e: Exception) {
-                Log.e("CodeOSS", "Failed to destroy tunnel process", e)
+                Log.e("Kodrix", "Failed to destroy tunnel process", e)
             }
         }
         _activeTunnels.value = _activeTunnels.value.filter { it.port != port }
@@ -1767,7 +1787,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         val proj = _activeProject.value ?: return null
         val projDir = java.io.File(projectsRoot, proj)
         val nativeLibPath = getApplication<Application>().applicationInfo.nativeLibraryDir
-        val gitBin = "$nativeLibPath/libgit.so"
+        val gitBin = "$nativeLibPath/libgit_bin.so"
         val libLinksDir = java.io.File(getApplication<Application>().filesDir, "lib").absolutePath
         val env = arrayOf(
             "GIT_EXEC_PATH=$nativeLibPath",
@@ -1779,7 +1799,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         return try {
             Runtime.getRuntime().exec(arrayOf(gitBin) + args, env, projDir)
         } catch (e: Exception) {
-            Log.e("CodeOSS", "Git run failed: ${args.joinToString(" ")}", e)
+            Log.e("Kodrix", "Git run failed: ${args.joinToString(" ")}", e)
             null
         }
     }
@@ -1843,7 +1863,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 } ?: ""
                 _gitRemoteUrl.value = if (remoteUrl.isEmpty()) "No Remote" else remoteUrl
             } catch (e: Exception) {
-                Log.e("CodeOSS", "Git refresh failed", e)
+                Log.e("Kodrix", "Git refresh failed", e)
             }
 
         }
@@ -1983,7 +2003,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                             command = "npm run dev -- --no-turbo\n"
                         }
                     } catch (e: Exception) {
-                        Log.e("CodeOSS", "Failed to read package.json", e)
+                        Log.e("Kodrix", "Failed to read package.json", e)
                     }
                 }
             }
@@ -2113,7 +2133,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     if (isLspSupported(file.extension)) startLsp(file)
                 }
             } catch (e: Exception) {
-                Log.e("CodeOSS", "Failed to read file", e)
+                Log.e("Kodrix", "Failed to read file", e)
             }
         }
     }
@@ -2279,7 +2299,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     android.widget.Toast.makeText(getApplication(), "Saved: ${file.name}", android.widget.Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
-                Log.e("CodeOSS", "Failed to save file", e)
+                Log.e("Kodrix", "Failed to save file", e)
             }
         }
     }
@@ -2304,7 +2324,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
     }
 
     private val CLONE_NOTIF_ID = 1001
-    private val CLONE_CHANNEL_ID = "codeoss_clone"
+    private val CLONE_CHANNEL_ID = "kodrix_clone"
     private var lastCloneNotifTime = 0L
 
     private fun updateCloneNotification(progress: Int, title: String) {
@@ -2374,7 +2394,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 } else url
                 logFile.appendText("URL: $url\n")
                 val pb = ProcessBuilder(
-                    if (java.io.File(gitBinary).exists()) gitBinary else "$nativeLibPath/libgit.so",
+                    if (java.io.File(gitBinary).exists()) gitBinary else "$nativeLibPath/libgit_bin.so",
                     "clone", "--progress", authUrl, projDir.absolutePath
                 )
                 val env = pb.environment()
@@ -2422,7 +2442,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     _cloneProgress.value = 0
                 }
             } catch (e: Exception) {
-                Log.e("CodeOSS", "Clone failed", e)
+                Log.e("Kodrix", "Clone failed", e)
                 withContext(Dispatchers.Main) {
                     projDir.deleteRecursively()
                     android.widget.Toast.makeText(getApplication(), "Clone Error: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
@@ -2459,7 +2479,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 java.io.File(parent, name).createNewFile()
                 _activeProject.value?.let { refreshFileTree(java.io.File(projectsRoot, it)) }
             } catch (e: Exception) {
-                Log.e("CodeOSS", "Failed to create file", e)
+                Log.e("Kodrix", "Failed to create file", e)
             }
         }
     }
@@ -2470,7 +2490,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 java.io.File(parent, name).mkdirs()
                 _activeProject.value?.let { refreshFileTree(java.io.File(projectsRoot, it)) }
             } catch (e: Exception) {
-                Log.e("CodeOSS", "Failed to create folder", e)
+                Log.e("Kodrix", "Failed to create folder", e)
             }
         }
     }
@@ -2486,7 +2506,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 }
                 _openTabs.value = updatedTabs
             } catch (e: Exception) {
-                Log.e("CodeOSS", "Failed to rename file", e)
+                Log.e("Kodrix", "Failed to rename file", e)
             }
         }
     }
@@ -2503,7 +2523,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     }
                 }
             } catch (e: Exception) {
-                Log.e("CodeOSS", "Failed to delete file", e)
+                Log.e("Kodrix", "Failed to delete file", e)
             }
         }
     }
@@ -2526,7 +2546,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 }
                 _activeProject.value?.let { refreshFileTree(java.io.File(projectsRoot, it)) }
             } catch (e: Exception) {
-                Log.e("CodeOSS", "Failed to paste file", e)
+                Log.e("Kodrix", "Failed to paste file", e)
             }
         }
     }
@@ -2688,7 +2708,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     }
                 }
             } catch (e: Exception) {
-                Log.e("CodeOSS", "Import failed", e)
+                Log.e("Kodrix", "Import failed", e)
             }
         }
     }
@@ -2708,7 +2728,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     android.widget.Toast.makeText(context, "Project Exported", android.widget.Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
-                Log.e("CodeOSS", "Export failed", e)
+                Log.e("Kodrix", "Export failed", e)
             }
         }
     }
@@ -2727,7 +2747,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 }
                 _activeProject.value?.let { refreshFileTree(java.io.File(projectsRoot, it)) }
             } catch (e: Exception) {
-                Log.e("CodeOSS", "File import failed", e)
+                Log.e("Kodrix", "File import failed", e)
             }
         }
     }
@@ -2743,7 +2763,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     android.widget.Toast.makeText(context, "File Exported", android.widget.Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
-                Log.e("CodeOSS", "File export failed", e)
+                Log.e("Kodrix", "File export failed", e)
             }
         }
     }
@@ -2769,7 +2789,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                 val url = java.net.URL("https://registry.npmjs.org/-/v1/search?text=${java.net.URLEncoder.encode(query, "UTF-8")}&size=20")
                 val conn = url.openConnection() as java.net.HttpURLConnection
                 connection = conn
-                conn.setRequestProperty("User-Agent", "CodeOSS-Android-App")
+                conn.setRequestProperty("User-Agent", "Kodrix-IDE-App")
                 if (conn.responseCode == 200) {
                     val response = conn.inputStream.bufferedReader().use { it.readText() }
                     val json = JSONObject(response)
@@ -2788,7 +2808,7 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
                     _npmResults.value = results
                 }
             } catch (e: Exception) {
-                Log.e("CodeOSS", "NPM Search failed", e)
+                Log.e("Kodrix", "NPM Search failed", e)
             } finally {
                 connection?.disconnect()
                 _isNpmSearching.value = false

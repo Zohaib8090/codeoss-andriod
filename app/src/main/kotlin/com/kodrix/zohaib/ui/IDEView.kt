@@ -186,6 +186,68 @@ fun IDEView(viewModel: TerminalViewModel) {
                 }
             }
         }
+
+        val showThirdPartyDialog by viewModel.showThirdPartyDialog.collectAsState()
+        if (showThirdPartyDialog) {
+            ThirdPartyServicesDialog(onAccept = { viewModel.acceptThirdPartyServices() })
+        }
+    }
+}
+
+@Composable
+fun ThirdPartyServicesDialog(onAccept: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = {}, // Force acceptance
+        title = { 
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Security, null, tint = Color(0xFF58A6FF), modifier = Modifier.size(24.dp))
+                Spacer(Modifier.width(12.dp))
+                Text("Third-Party Services Disclosure", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    "Kodrix IDE integrates several third-party services to provide a seamless development experience. By continuing, you acknowledge the use of:",
+                    color = Color.LightGray,
+                    fontSize = 14.sp
+                )
+                Spacer(Modifier.height(16.dp))
+                
+                ServiceItem("GitHub OAuth", "Used for repository access, Gists, and account synchronization.")
+                ServiceItem("Google Gemini AI", "Powers the intelligent coding assistant and agent orchestrator.")
+                ServiceItem("Bore.pub / Tunneling", "Enables local web server previewing and port forwarding.")
+                ServiceItem("NPM / JSR Registry", "Used for searching and installing packages and extensions.")
+                
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "No private code is shared without your explicit action (e.g. asking the AI or pushing to Git).",
+                    color = Color.Gray,
+                    fontSize = 11.sp,
+                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onAccept,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF238636)),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
+            ) {
+                Text("I Understand & Accept", color = Color.White, fontWeight = FontWeight.Bold)
+            }
+        },
+        containerColor = Color(0xFF161B22),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+        properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
+    )
+}
+
+@Composable
+fun ServiceItem(name: String, description: String) {
+    Column(modifier = Modifier.padding(vertical = 6.dp)) {
+        Text(name, color = Color(0xFF58A6FF), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+        Text(description, color = Color.Gray, fontSize = 12.sp)
     }
 }
 
@@ -1798,6 +1860,27 @@ fun SettingsContent(viewModel: TerminalViewModel) {
             InfoRowItem("Architecture", android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown", uiScale)
             InfoRowItem("Android Version", android.os.Build.VERSION.RELEASE, uiScale)
             InfoRowItem("Device", android.os.Build.MODEL, uiScale)
+
+            Spacer(Modifier.height(32.dp))
+            Text("Updates", color = Color.White, fontSize = (14 * uiScale).sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(16.dp))
+            InfoRowItem("Current Version", "1.1.1", uiScale)
+            Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = {
+                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/Zohaib8090/KodrixIDE/releases"))
+                    intent.flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                    viewModel.getApplication<android.app.Application>().startActivity(intent)
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF161B22)),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF30363D)),
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp)
+            ) {
+                Icon(Icons.Default.CloudDownload, null, tint = Color(0xFF58A6FF), modifier = Modifier.size((16 * uiScale).dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Check for Updates", color = Color.White, fontSize = (12 * uiScale).sp)
+            }
         }
     }
 }

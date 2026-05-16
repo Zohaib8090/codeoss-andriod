@@ -23,7 +23,7 @@ I will create a PowerShell script `scripts/fetch-binaries.ps1` to:
 
 ### [Component] Native Bridge (C++/JNI)
 
-#### [MODIFY] [native-lib.cpp](file:///c:/Users/zohai/Downloads/my code/codeoss-android/app/src/main/cpp/native-lib.cpp)
+#### [MODIFY] [native-lib.cpp](file:///c:/Users/zohai/Downloads/my code/KodrixIDE/app/src/main/cpp/native-lib.cpp)
 - Update `createPty` to accept `binPath` and `libPath` as arguments.
 - Use `setenv` to update `PATH` and `LD_LIBRARY_PATH` in the child process before `exec`.
 - Ensure `HOME` is set to the app's internal files directory.
@@ -32,7 +32,7 @@ I will create a PowerShell script `scripts/fetch-binaries.ps1` to:
 
 ### [Component] Terminal Logic (Kotlin)
 
-#### [MODIFY] [PtyBridge.kt](file:///c:/Users/zohai/Downloads/my code/codeoss-android/app/src/main/kotlin/com/zohaib/codeossandriod/PtyBridge.kt)
+#### [MODIFY] [PtyBridge.kt](file:///c:/Users/zohai/Downloads/my code/KodrixIDE/app/src/main/kotlin/com/zohaib/codeossandriod/PtyBridge.kt)
 - Update `startShell` to resolve the app's `nativeLibraryDir`.
 - Pass paths to the native `createPty` function.
 
@@ -40,7 +40,7 @@ I will create a PowerShell script `scripts/fetch-binaries.ps1` to:
 
 ### [Component] UI / UX (Jetpack Compose)
 
-#### [MODIFY] [MainActivity.kt](file:///c:/Users/zohai/Downloads/my code/codeoss-android/app/src/main/kotlin/com/zohaib/codeossandriod/MainActivity.kt)
+#### [MODIFY] [MainActivity.kt](file:///c:/Users/zohai/Downloads/my code/KodrixIDE/app/src/main/kotlin/com/zohaib/codeossandriod/MainActivity.kt)
 - Implement a `SplashScreen` state.
 - Perform a "First Run" check:
     - Verify if `libnode.so` and `libgit.so` are present in the library directory.
